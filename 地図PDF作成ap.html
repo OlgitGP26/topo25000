@@ -1,0 +1,860 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+  <meta name="theme-color" content="#13251b" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Topo25000" />
+  <style>
+:root {
+  color-scheme: light dark;
+  --bg: #f3f5f1;
+  --card: #ffffff;
+  --text: #15221a;
+  --muted: #637067;
+  --line: #d9dfda;
+  --accent: #173f2c;
+  --start: #bf2b2b;
+  --goal: #2458a8;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; background: var(--bg); color: var(--text); }
+body { padding-bottom: env(safe-area-inset-bottom); }
+button, input, select { font: inherit; }
+button { touch-action: manipulation; }
+.topbar {
+  padding: calc(12px + env(safe-area-inset-top)) 16px 10px;
+  background: #13251b; color: white; display: flex; align-items: center; justify-content: space-between;
+}
+.topbar h1 { margin: 0; font-size: 20px; letter-spacing: .02em; }
+.topbar p { margin: 2px 0 0; font-size: 12px; opacity: .78; }
+.icon-btn { width: 42px; height: 42px; border-radius: 12px; border: 1px solid #ffffff45; background: #ffffff18; color: white; font-size: 24px; }
+main { max-width: 760px; margin: 0 auto; }
+.map-card { position: relative; height: min(54vh, 520px); min-height: 330px; background: #dfe5df; overflow: hidden; border-bottom: 1px solid var(--line); }
+#mapCanvas { width: 100%; height: 100%; display: block; touch-action: none; }
+.map-crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -52%); color: #0008; font-size: 28px; font-weight: 300; pointer-events: none; }
+.zoom-controls { position: absolute; right: 12px; top: 12px; display: grid; gap: 6px; }
+.zoom-controls button { width: 42px; height: 42px; border-radius: 10px; border: 1px solid #0002; background: #fffc; color: #182019; font-size: 24px; box-shadow: 0 1px 8px #0002; }
+.map-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); background: #111d; color: white; padding: 8px 12px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+.panel { margin: 12px; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 2px 14px #0000000d; }
+.segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.segmented button { padding: 12px 8px; border: 1px solid var(--line); border-radius: 12px; background: transparent; font-weight: 700; }
+.segmented button.active.start { background: #fff0f0; border-color: #e3a7a7; color: #8d1717; }
+.segmented button.active.goal { background: #edf4ff; border-color: #a8bfe5; color: #173f7c; }
+.point-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.point { border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; gap: 8px; align-items: center; min-width: 0; }
+.badge { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; color: white; display: grid; place-items: center; font-weight: 800; }
+.badge.start { background: var(--start); }
+.badge.goal { background: var(--goal); }
+.point strong { display: block; font-size: 12px; }
+.point small { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.input-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 10px; }
+input, select { width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); padding: 11px; }
+.input-row button { border: 1px solid var(--line); border-radius: 10px; padding: 0 14px; background: transparent; }
+.search-status { margin-top: 7px; font-size: 11px; color: var(--muted); min-height: 1.3em; }
+.search-results { display: grid; gap: 7px; margin-top: 7px; max-height: 230px; overflow: auto; }
+.search-result { width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 11px; background: var(--card); color: var(--text); padding: 9px 10px; cursor: pointer; }
+.search-result:hover { border-color: #789080; }
+.search-result strong { display: block; font-size: 13px; line-height: 1.35; }
+.search-result small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+.search-help { margin: 7px 1px 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+details { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+summary { font-weight: 700; cursor: pointer; }
+.settings-grid { display: grid; gap: 10px; margin-top: 10px; }
+.settings-grid label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+.check-row { grid-template-columns: auto 1fr !important; align-items: center; }
+.check-row input { width: auto; }
+.hidden { display: none !important; }
+.primary { width: 100%; margin-top: 14px; padding: 14px; border: 0; border-radius: 12px; background: var(--accent); color: white; font-weight: 800; font-size: 16px; }
+.primary:disabled { opacity: .45; }
+.progress { margin-top: 12px; display: grid; gap: 5px; }
+.progress-track { height: 8px; border-radius: 999px; overflow: hidden; background: #ccd3cd; }
+#progressBar { width: 0%; height: 100%; background: var(--accent); transition: width .15s linear; }
+#progressText { font-size: 12px; color: var(--muted); }
+.note { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 10px 2px 0; }
+footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(--muted); font-size: 10px; line-height: 1.5; display: grid; gap: 2px; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #101511; --card: #172019; --text: #eef3ef; --muted: #a7b0a9; --line: #334038; --accent: #2d6a4a; }
+  .segmented button.active.start { background: #3b1d1d; color: #ffb5b5; border-color: #754141; }
+  .segmented button.active.goal { background: #172d4c; color: #b9d3ff; border-color: #385b89; }
+  .zoom-controls button { background: #172019e8; color: white; border-color: #ffffff26; }
+}
+
+  </style>
+  <title>Topo25000</title>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Topo25000</h1>
+      <p>登山用 1:25,000 地形図PDF</p>
+    </div>
+    <button id="locateBtn" class="icon-btn" type="button" aria-label="現在地">◎</button>
+  </header>
+
+  <div style="max-width:980px;margin:8px auto 0;padding:0 12px;font-size:12px;opacity:.8">Desktop版 v3：地名検索対応。このHTMLだけで起動します。地図・地名検索時のみ国土地理院へ通信します。</div>
+
+  <main>
+    <section class="map-card" aria-label="地図">
+      <canvas id="mapCanvas"></canvas>
+      <div class="map-crosshair" aria-hidden="true">+</div>
+      <div class="zoom-controls">
+        <button id="zoomInBtn" type="button">＋</button>
+        <button id="zoomOutBtn" type="button">−</button>
+      </div>
+      <div id="mapHint" class="map-hint">STARTを選び、地図をタップ</div>
+    </section>
+
+    <section class="panel">
+      <div class="segmented" role="group" aria-label="地点選択">
+        <button id="modeStart" class="active start" type="button">STARTを設定</button>
+        <button id="modeGoal" class="goal" type="button">GOALを設定</button>
+      </div>
+
+      <div class="point-grid">
+        <div class="point start-point">
+          <span class="badge start">S</span>
+          <div><strong>START</strong><small id="startText">未設定</small></div>
+        </div>
+        <div class="point goal-point">
+          <span class="badge goal">G</span>
+          <div><strong>GOAL</strong><small id="goalText">未設定</small></div>
+        </div>
+      </div>
+
+      <div class="input-row">
+        <input id="placeSearchInput" autocomplete="off" enterkeyhint="search" placeholder="地名・山名・施設名 例：谷川岳、鳩待峠" />
+        <button id="placeSearchBtn" type="button">検索</button>
+      </div>
+      <div id="searchStatus" class="search-status"></div>
+      <div id="searchResults" class="search-results hidden" aria-live="polite"></div>
+      <p class="search-help">候補をクリックすると、現在選択中のSTARTまたはGOALに設定します。検索語は国土地理院の地名検索へ送信されます。</p>
+
+      <div class="input-row">
+        <input id="coordInput" inputmode="decimal" autocomplete="off" placeholder="緯度, 経度 例 35.3606, 138.7274" />
+        <button id="applyCoordBtn" type="button">設定</button>
+      </div>
+
+      <details>
+        <summary>磁北線・PDF設定</summary>
+        <div class="settings-grid">
+          <label>
+            磁北偏角
+            <select id="declinationMode">
+              <option value="auto">自動：国土地理院 2020.0近似式</option>
+              <option value="manual">手動</option>
+            </select>
+          </label>
+          <label id="manualDeclinationWrap" class="hidden">
+            西偏（度）※東偏はマイナス
+            <input id="manualDeclination" type="number" step="0.01" value="7.5" inputmode="decimal" />
+          </label>
+          <label>
+            PDF画質
+            <select id="dpiSelect">
+              <option value="200">標準 200 dpi</option>
+              <option value="300" selected>高精細 300 dpi</option>
+            </select>
+          </label>
+          <label class="check-row">
+            <input id="multiPage" type="checkbox" checked />
+            長距離は複数ページに自動分割
+          </label>
+        </div>
+      </details>
+
+      <button id="pdfBtn" class="primary" type="button" disabled>1:25,000 PDFを作成</button>
+      <div id="progress" class="progress hidden" aria-live="polite">
+        <div class="progress-track"><div id="progressBar"></div></div>
+        <span id="progressText"></span>
+      </div>
+      <p class="note">PDFはA4横・地図面277×190 mm。1 km磁北線の紙上間隔は40 mm。印刷時は「100% / 実際のサイズ」を使用。</p>
+    </section>
+  </main>
+
+  <footer>
+    <span>背景地図：国土地理院「地理院タイル（標準地図）」</span>
+    <span>位置情報・山行地点は本アプリのサーバーへ保存しません。</span>
+  </footer>
+
+  <script>
+'use strict';
+
+const GSI_TILE = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/std/${z}/${x}/${y}.png`;
+const GSI_PLACE_SEARCH = 'https://msearch.gsi.go.jp/address-search/AddressSearch';
+const EARTH_R = 6371008.8;
+const WEBMERCATOR_MPP0 = 156543.03392804097;
+const A4_LANDSCAPE_MM = { w: 297, h: 210 };
+const MAP_MM = { w: 277, h: 190 };
+const MAP_MARGIN_MM = { x: 10, y: 10 };
+const SCALE_DENOM = 25000;
+const TILE_SIZE = 256;
+
+const state = {
+  center: { lat: 35.3606, lon: 138.7274 },
+  zoom: 14,
+  mode: 'start',
+  start: null,
+  goal: null,
+  drag: null,
+  renderToken: 0,
+  tileCache: new Map(),
+  tileCacheOrder: [],
+};
+
+const els = {
+  canvas: document.getElementById('mapCanvas'),
+  hint: document.getElementById('mapHint'),
+  modeStart: document.getElementById('modeStart'),
+  modeGoal: document.getElementById('modeGoal'),
+  startText: document.getElementById('startText'),
+  goalText: document.getElementById('goalText'),
+  placeSearchInput: document.getElementById('placeSearchInput'),
+  placeSearchBtn: document.getElementById('placeSearchBtn'),
+  searchStatus: document.getElementById('searchStatus'),
+  searchResults: document.getElementById('searchResults'),
+  coordInput: document.getElementById('coordInput'),
+  applyCoordBtn: document.getElementById('applyCoordBtn'),
+  locateBtn: document.getElementById('locateBtn'),
+  zoomInBtn: document.getElementById('zoomInBtn'),
+  zoomOutBtn: document.getElementById('zoomOutBtn'),
+  declinationMode: document.getElementById('declinationMode'),
+  manualWrap: document.getElementById('manualDeclinationWrap'),
+  manualDeclination: document.getElementById('manualDeclination'),
+  dpiSelect: document.getElementById('dpiSelect'),
+  multiPage: document.getElementById('multiPage'),
+  pdfBtn: document.getElementById('pdfBtn'),
+  progress: document.getElementById('progress'),
+  progressBar: document.getElementById('progressBar'),
+  progressText: document.getElementById('progressText'),
+};
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function rad(d) { return d * Math.PI / 180; }
+function deg(r) { return r * 180 / Math.PI; }
+function mod(n, m) { return ((n % m) + m) % m; }
+
+function project(lat, lon, z) {
+  const n = 2 ** z;
+  const x = ((lon + 180) / 360) * n * TILE_SIZE;
+  const latRad = rad(clamp(lat, -85.05112878, 85.05112878));
+  const y = (1 - Math.asinh(Math.tan(latRad)) / Math.PI) / 2 * n * TILE_SIZE;
+  return { x, y };
+}
+
+function unproject(x, y, z) {
+  const n = 2 ** z * TILE_SIZE;
+  const lon = x / n * 360 - 180;
+  const a = Math.PI * (1 - 2 * y / n);
+  const lat = deg(Math.atan(Math.sinh(a)));
+  return { lat, lon };
+}
+
+function haversine(a, b) {
+  const p1 = rad(a.lat), p2 = rad(b.lat);
+  const dp = rad(b.lat - a.lat), dl = rad(b.lon - a.lon);
+  const h = Math.sin(dp/2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) ** 2;
+  return 2 * EARTH_R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function bearing(a, b) {
+  const p1 = rad(a.lat), p2 = rad(b.lat), dl = rad(b.lon - a.lon);
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
+  return mod(deg(Math.atan2(y, x)), 360);
+}
+
+function destination(start, bearingDeg, distanceM) {
+  const d = distanceM / EARTH_R;
+  const br = rad(bearingDeg), p1 = rad(start.lat), l1 = rad(start.lon);
+  const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(br));
+  const l2 = l1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
+  return { lat: deg(p2), lon: mod(deg(l2) + 180, 360) - 180 };
+}
+
+function midpoint(a, b) {
+  const d = haversine(a, b);
+  if (d < 0.01) return { ...a };
+  return destination(a, bearing(a, b), d / 2);
+}
+
+function gsiDeclination2020(lat, lon) {
+  // 国土地理院「日本列島における標準的な地磁気分布を表す近似式」2020.0年値。
+  // Dは真北基準、反時計回り（西回り）を正。
+  const dp = lat - 37;
+  const dl = lon - 138;
+  const minutes = 15.822 + 18.462*dp - 7.726*dl + 0.007*dp*dp - 0.007*dp*dl - 0.655*dl*dl;
+  return 8 + minutes / 60;
+}
+
+function formatDeclination(d) {
+  const dir = d >= 0 ? 'W' : 'E';
+  const abs = Math.abs(d);
+  const dd = Math.floor(abs);
+  const mm = (abs - dd) * 60;
+  return `${dd}°${mm.toFixed(1)}′${dir}`;
+}
+
+function formatCoord(p) {
+  return `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  els.modeStart.classList.toggle('active', mode === 'start');
+  els.modeGoal.classList.toggle('active', mode === 'goal');
+  els.hint.textContent = mode === 'start' ? '地図をタップしてSTARTを設定' : '地図をタップしてGOALを設定';
+}
+
+function setPoint(mode, p, recenter = false) {
+  state[mode] = { lat: p.lat, lon: p.lon };
+  if (recenter) state.center = { ...p };
+  els.startText.textContent = state.start ? formatCoord(state.start) : '未設定';
+  els.goalText.textContent = state.goal ? formatCoord(state.goal) : '未設定';
+  els.pdfBtn.disabled = !(state.start && state.goal);
+  if (mode === 'start' && !state.goal) setMode('goal');
+  if (state.start && state.goal) fitPoints(); else renderPreview();
+}
+
+function parseCoordinate(text) {
+  const m = text.trim().replace(/，/g, ',').match(/^\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (!m) return null;
+  const lat = Number(m[1]), lon = Number(m[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+  return { lat, lon };
+}
+
+async function searchPlace() {
+  const q = els.placeSearchInput.value.trim();
+  if (!q) {
+    els.searchStatus.textContent = '地名・山名を入力してください。';
+    els.searchResults.classList.add('hidden');
+    return;
+  }
+
+  els.placeSearchBtn.disabled = true;
+  els.placeSearchBtn.textContent = '検索中';
+  els.searchStatus.textContent = `「${q}」を検索中…`;
+  els.searchResults.innerHTML = '';
+  els.searchResults.classList.add('hidden');
+
+  try {
+    const url = `${GSI_PLACE_SEARCH}?q=${encodeURIComponent(q)}`;
+    const res = await fetch(url, { mode: 'cors', cache: 'no-store' });
+    if (!res.ok) throw new Error(`検索サーバー応答 ${res.status}`);
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      els.searchStatus.textContent = '候補が見つかりませんでした。市町村名などを加えて再検索してください。';
+      return;
+    }
+
+    const valid = data.filter(item => {
+      const c = item?.geometry?.coordinates;
+      return Array.isArray(c) && c.length >= 2 && Number.isFinite(Number(c[0])) && Number.isFinite(Number(c[1]));
+    }).slice(0, 12);
+
+    if (!valid.length) {
+      els.searchStatus.textContent = '位置情報を持つ候補が見つかりませんでした。';
+      return;
+    }
+
+    els.searchStatus.textContent = `${valid.length}件表示。候補をクリックすると${state.mode === 'start' ? 'START' : 'GOAL'}に設定します。`;
+    for (const item of valid) {
+      const [lon, lat] = item.geometry.coordinates.map(Number);
+      const title = item?.properties?.title || q;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'search-result';
+      const strong = document.createElement('strong');
+      strong.textContent = title;
+      const small = document.createElement('small');
+      small.textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+      btn.append(strong, small);
+      btn.addEventListener('click', () => {
+        const targetMode = state.mode;
+        state.zoom = Math.max(state.zoom, 15);
+        setPoint(targetMode, { lat, lon }, true);
+        els.searchStatus.textContent = `${title} → ${targetMode === 'start' ? 'START' : 'GOAL'}に設定しました。`;
+        els.searchResults.classList.add('hidden');
+      });
+      els.searchResults.appendChild(btn);
+    }
+    els.searchResults.classList.remove('hidden');
+  } catch (err) {
+    console.error(err);
+    els.searchStatus.textContent = '地名検索に失敗しました。インターネット接続を確認してください。';
+  } finally {
+    els.placeSearchBtn.disabled = false;
+    els.placeSearchBtn.textContent = '検索';
+  }
+}
+
+function canvasPointToLatLon(clientX, clientY) {
+  const rect = els.canvas.getBoundingClientRect();
+  const x = clientX - rect.left, y = clientY - rect.top;
+  const c = project(state.center.lat, state.center.lon, state.zoom);
+  return unproject(c.x + (x - rect.width/2), c.y + (y - rect.height/2), state.zoom);
+}
+
+async function loadBitmap(url, memory = true) {
+  if (memory && state.tileCache.has(url)) return state.tileCache.get(url);
+  const res = await fetch(url, { mode: 'cors', cache: 'force-cache' });
+  if (!res.ok) throw new Error(`地図タイル取得失敗: ${res.status}`);
+  const blob = await res.blob();
+  const bmp = await createImageBitmap(blob);
+  if (memory) {
+    state.tileCache.set(url, bmp);
+    state.tileCacheOrder.push(url);
+    while (state.tileCacheOrder.length > 192) {
+      const old = state.tileCacheOrder.shift();
+      const oldBmp = state.tileCache.get(old);
+      if (oldBmp && oldBmp !== bmp && typeof oldBmp.close === 'function') oldBmp.close();
+      state.tileCache.delete(old);
+    }
+  }
+  return bmp;
+}
+
+async function renderPreview() {
+  const token = ++state.renderToken;
+  const rect = els.canvas.getBoundingClientRect();
+  if (rect.width < 10 || rect.height < 10) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const pixelW = Math.max(1, Math.round(rect.width * dpr));
+  const pixelH = Math.max(1, Math.round(rect.height * dpr));
+  if (els.canvas.width !== pixelW || els.canvas.height !== pixelH) {
+    els.canvas.width = pixelW;
+    els.canvas.height = pixelH;
+  }
+  const ctx = els.canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = rect.width, h = rect.height;
+  ctx.fillStyle = '#dfe5df'; ctx.fillRect(0, 0, w, h);
+
+  const z = state.zoom;
+  const n = 2 ** z;
+  const centerPx = project(state.center.lat, state.center.lon, z);
+  const left = centerPx.x - w / 2, top = centerPx.y - h / 2;
+  const x0 = Math.floor(left / TILE_SIZE), x1 = Math.floor((left + w) / TILE_SIZE);
+  const y0 = Math.max(0, Math.floor(top / TILE_SIZE)), y1 = Math.min(n - 1, Math.floor((top + h) / TILE_SIZE));
+  const jobs = [];
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      const wrappedX = mod(tx, n);
+      const url = GSI_TILE(z, wrappedX, ty);
+      jobs.push(loadBitmap(url, true).then(bmp => ({ bmp, tx, ty })).catch(() => null));
+    }
+  }
+  const tiles = await Promise.all(jobs);
+  if (token !== state.renderToken) return;
+  for (const t of tiles) {
+    if (!t) continue;
+    ctx.drawImage(t.bmp, t.tx * TILE_SIZE - left, t.ty * TILE_SIZE - top, TILE_SIZE, TILE_SIZE);
+  }
+
+  function drawMarker(p, color, label) {
+    if (!p) return;
+    const q = project(p.lat, p.lon, z);
+    let dx = q.x - centerPx.x;
+    const world = n * TILE_SIZE;
+    if (dx > world/2) dx -= world;
+    if (dx < -world/2) dx += world;
+    const x = w/2 + dx, y = h/2 + (q.y - centerPx.y);
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = '700 11px -apple-system,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, x, y + .5);
+    ctx.restore();
+    return { x, y };
+  }
+  const s = drawMarker(state.start, '#bf2b2b', 'S');
+  const g = drawMarker(state.goal, '#2458a8', 'G');
+  if (s && g) {
+    ctx.save(); ctx.strokeStyle = '#172019'; ctx.lineWidth = 2; ctx.setLineDash([7,5]);
+    ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.lineTo(g.x,g.y); ctx.stroke(); ctx.restore();
+  }
+}
+
+function fitPoints() {
+  if (!state.start || !state.goal) return;
+  state.center = midpoint(state.start, state.goal);
+  for (let z = 17; z >= 10; z--) {
+    const rect = els.canvas.getBoundingClientRect();
+    const a = project(state.start.lat, state.start.lon, z);
+    const b = project(state.goal.lat, state.goal.lon, z);
+    let dx = Math.abs(a.x-b.x);
+    const world = TILE_SIZE * 2**z;
+    dx = Math.min(dx, world-dx);
+    const dy = Math.abs(a.y-b.y);
+    if (dx < rect.width*.7 && dy < rect.height*.65) { state.zoom = z; break; }
+  }
+  renderPreview();
+}
+
+function choosePdfCenters(start, goal, allowMulti) {
+  const mid = midpoint(start, goal);
+  const groundW = MAP_MM.w * (SCALE_DENOM / 1000); // mm * 25 m/mm = 6925 m
+  const groundH = MAP_MM.h * (SCALE_DENOM / 1000); // 4750 m
+  const midLat = rad(mid.lat);
+  const dx = rad(goal.lon - start.lon) * EARTH_R * Math.cos(midLat);
+  const dy = rad(goal.lat - start.lat) * EARTH_R;
+  const margin = 500;
+  if (!allowMulti || (Math.abs(dx) <= groundW - 2*margin && Math.abs(dy) <= groundH - 2*margin)) return [mid];
+
+  const dist = haversine(start, goal);
+  const br = bearing(start, goal);
+  const pages = clamp(Math.ceil(dist / 3500), 1, 12);
+  const centers = [];
+  for (let i = 0; i < pages; i++) {
+    const d = dist * ((i + 0.5) / pages);
+    centers.push(destination(start, br, d));
+  }
+  return centers;
+}
+
+function chooseTileZoom(lat, dpi) {
+  const targetGroundMpp = (25.4 / dpi) * (SCALE_DENOM / 1000); // mm/px * m/mm
+  const z = Math.ceil(Math.log2(WEBMERCATOR_MPP0 * Math.cos(rad(lat)) / targetGroundMpp));
+  return clamp(z, 13, 17);
+}
+
+function pageGeo(center, z, outW, outH) {
+  const groundW = MAP_MM.w * (SCALE_DENOM / 1000);
+  const groundH = MAP_MM.h * (SCALE_DENOM / 1000);
+  const mpp = WEBMERCATOR_MPP0 * Math.cos(rad(center.lat)) / (2 ** z);
+  const srcW = groundW / mpp;
+  const srcH = groundH / mpp;
+  const cp = project(center.lat, center.lon, z);
+  return {
+    z, groundW, groundH, srcW, srcH,
+    left: cp.x - srcW/2,
+    top: cp.y - srcH/2,
+    outW, outH,
+  };
+}
+
+function pointToOutput(p, geo) {
+  const q = project(p.lat, p.lon, geo.z);
+  let x = q.x;
+  const world = TILE_SIZE * 2**geo.z;
+  while (x - geo.left > world/2) x -= world;
+  while (x - geo.left < -world/2) x += world;
+  return {
+    x: (x - geo.left) / geo.srcW * geo.outW,
+    y: (q.y - geo.top) / geo.srcH * geo.outH,
+  };
+}
+
+async function drawTilesForPdf(ctx, geo, onProgress) {
+  const n = 2 ** geo.z;
+  const right = geo.left + geo.srcW, bottom = geo.top + geo.srcH;
+  const x0 = Math.floor(geo.left / TILE_SIZE), x1 = Math.floor((right - 1e-6) / TILE_SIZE);
+  const y0 = Math.max(0, Math.floor(geo.top / TILE_SIZE)), y1 = Math.min(n-1, Math.floor((bottom - 1e-6) / TILE_SIZE));
+  const jobs = [];
+  for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) jobs.push({tx,ty});
+
+  let done = 0;
+  for (let i = 0; i < jobs.length; i += 8) {
+    const batch = jobs.slice(i, i+8);
+    const loaded = await Promise.all(batch.map(async job => {
+      const wx = mod(job.tx, n);
+      const url = GSI_TILE(geo.z, wx, job.ty);
+      try { return { ...job, bmp: await loadBitmap(url, false) }; }
+      catch { return { ...job, bmp: null }; }
+    }));
+    for (const t of loaded) {
+      if (t.bmp) {
+        const dx = (t.tx*TILE_SIZE - geo.left) / geo.srcW * geo.outW;
+        const dy = (t.ty*TILE_SIZE - geo.top) / geo.srcH * geo.outH;
+        const dw = TILE_SIZE / geo.srcW * geo.outW;
+        const dh = TILE_SIZE / geo.srcH * geo.outH;
+        ctx.drawImage(t.bmp, dx, dy, dw+.7, dh+.7);
+        if (typeof t.bmp.close === 'function') t.bmp.close();
+      }
+      done++;
+      onProgress?.(done / jobs.length);
+    }
+    await new Promise(r => setTimeout(r, 0));
+  }
+}
+
+function drawMagneticLines(ctx, w, h, declinationDeg, groundW) {
+  const spacing = w * 1000 / groundW; // 1 km exactly
+  const d = rad(declinationDeg);
+  const vx = -Math.sin(d), vy = -Math.cos(d); // magnetic north direction on screen
+  const nx = Math.cos(d), ny = -Math.sin(d);  // perpendicular unit vector
+  const cx = w/2, cy = h/2;
+  const c0 = cx*nx + cy*ny;
+  const cornerMax = Math.hypot(w,h) * 1.5;
+  const kMin = Math.floor((-cornerMax - c0) / spacing) - 2;
+  const kMax = Math.ceil((cornerMax - c0) / spacing) + 2;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(178, 28, 28, 0.72)';
+  ctx.lineWidth = Math.max(1.4, w * 0.00072);
+  for (let k = kMin; k <= kMax; k++) {
+    const c = c0 + k*spacing;
+    const px = nx*c, py = ny*c;
+    const L = Math.hypot(w,h)*1.2;
+    ctx.beginPath();
+    ctx.moveTo(px - vx*L, py - vy*L);
+    ctx.lineTo(px + vx*L, py + vy*L);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawMarkerPdf(ctx, p, color, label, radius) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
+  ctx.lineWidth = radius*.22; ctx.strokeStyle = '#fff'; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = `700 ${radius*1.12}px -apple-system,sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, p.x, p.y + radius*.04);
+  ctx.restore();
+}
+
+function drawPdfOverlay(ctx, geo, center, pageNo, pageCount, declination, start, goal, dpi) {
+  const w = geo.outW, h = geo.outH;
+  drawMagneticLines(ctx, w, h, declination, geo.groundW);
+
+  const sp = pointToOutput(start, geo), gp = pointToOutput(goal, geo);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(20,20,20,.86)';
+  ctx.lineWidth = Math.max(2.2, dpi * .28 / 25.4);
+  ctx.setLineDash([dpi*.8/25.4, dpi*.55/25.4]);
+  ctx.beginPath(); ctx.moveTo(sp.x,sp.y); ctx.lineTo(gp.x,gp.y); ctx.stroke();
+  ctx.restore();
+
+  const r = Math.max(11, dpi*1.4/25.4);
+  if (sp.x > -r && sp.x < w+r && sp.y > -r && sp.y < h+r) drawMarkerPdf(ctx, sp, '#b52323', 'S', r);
+  if (gp.x > -r && gp.x < w+r && gp.y > -r && gp.y < h+r) drawMarkerPdf(ctx, gp, '#1d4f9b', 'G', r);
+
+  // border
+  ctx.save();
+  ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1.2, dpi*.15/25.4); ctx.strokeRect(1,1,w-2,h-2);
+  ctx.restore();
+
+  // north / magnetic north mini indicator
+  const boxX = w - dpi*31/25.4, boxY = dpi*8/25.4;
+  const arrowLen = dpi*15/25.4;
+  const font = Math.max(15, dpi*2.25/25.4);
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,.88)'; ctx.fillRect(boxX-dpi*5/25.4, boxY-dpi*4/25.4, dpi*32/25.4, dpi*25/25.4);
+  ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1.5, dpi*.2/25.4);
+  ctx.beginPath(); ctx.moveTo(boxX, boxY+arrowLen); ctx.lineTo(boxX, boxY); ctx.stroke();
+  ctx.fillStyle = '#111'; ctx.beginPath(); ctx.moveTo(boxX, boxY); ctx.lineTo(boxX-dpi*1.2/25.4, boxY+dpi*2.2/25.4); ctx.lineTo(boxX+dpi*1.2/25.4, boxY+dpi*2.2/25.4); ctx.closePath(); ctx.fill();
+  const d = rad(declination), mx = boxX - Math.sin(d)*arrowLen, my = boxY+arrowLen - Math.cos(d)*arrowLen;
+  ctx.strokeStyle = '#b21c1c'; ctx.beginPath(); ctx.moveTo(boxX, boxY+arrowLen); ctx.lineTo(mx,my); ctx.stroke();
+  ctx.fillStyle = '#111'; ctx.font = `700 ${font}px -apple-system,sans-serif`; ctx.fillText('N', boxX-dpi*1.6/25.4, boxY-dpi*.6/25.4);
+  ctx.fillStyle = '#b21c1c'; ctx.fillText('MN', mx-dpi*2.8/25.4, my-dpi*.6/25.4);
+  ctx.restore();
+
+  // metadata panel
+  const pad = dpi*2.2/25.4;
+  const panelH = dpi*17.5/25.4;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,.90)'; ctx.fillRect(0, h-panelH, w, panelH);
+  ctx.fillStyle = '#111';
+  const f1 = Math.max(15, dpi*2.0/25.4), f2 = Math.max(13, dpi*1.65/25.4);
+  ctx.font = `700 ${f1}px -apple-system,sans-serif`;
+  ctx.textBaseline = 'top';
+  ctx.fillText(`1:25,000  |  磁北線 1 km = 40 mm  |  偏角 ${formatDeclination(declination)}  |  ${pageNo}/${pageCount}`, pad, h-panelH+pad);
+  ctx.font = `${f2}px -apple-system,sans-serif`;
+  ctx.fillText(`中心 ${center.lat.toFixed(5)}, ${center.lon.toFixed(5)}  |  出典：国土地理院「地理院タイル（標準地図）」`, pad, h-panelH+pad+f1*1.35);
+  ctx.fillText(`磁北偏角：GSI 2020.0近似式（手動指定時を除く）  |  印刷：100% / 実際のサイズ`, pad, h-panelH+pad+f1*1.35+f2*1.35);
+
+  // exact 1 km calibration bar = 40 mm
+  const barW = dpi * 40 / 25.4;
+  const by = h - pad*1.15;
+  ctx.lineWidth = Math.max(2, dpi*.25/25.4); ctx.strokeStyle = '#111';
+  ctx.beginPath(); ctx.moveTo(w-pad-barW, by); ctx.lineTo(w-pad, by); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(w-pad-barW, by-dpi*1.2/25.4); ctx.lineTo(w-pad-barW, by+dpi*1.2/25.4); ctx.moveTo(w-pad, by-dpi*1.2/25.4); ctx.lineTo(w-pad, by+dpi*1.2/25.4); ctx.stroke();
+  ctx.font = `700 ${f2}px -apple-system,sans-serif`; ctx.textAlign = 'right'; ctx.fillText('1 km（紙上40 mm）', w-pad, by-dpi*4.0/25.4);
+  ctx.restore();
+}
+
+async function canvasToJpegBytes(canvas, quality = 0.93) {
+  const blob = await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('JPEG変換に失敗しました')), 'image/jpeg', quality));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+function bytes(...arrays) {
+  const total = arrays.reduce((s,a) => s+a.length,0);
+  const out = new Uint8Array(total); let p=0;
+  for (const a of arrays) { out.set(a,p); p += a.length; }
+  return out;
+}
+const enc = new TextEncoder();
+const ascii = s => enc.encode(s);
+
+function buildPdf(pages, imageWidth, imageHeight) {
+  // One JPEG map image per A4 landscape PDF page. Physical placement is exact in PDF points.
+  const pageWpt = A4_LANDSCAPE_MM.w * 72 / 25.4;
+  const pageHpt = A4_LANDSCAPE_MM.h * 72 / 25.4;
+  const xpt = MAP_MARGIN_MM.x * 72 / 25.4;
+  const ypt = MAP_MARGIN_MM.y * 72 / 25.4;
+  const wpt = MAP_MM.w * 72 / 25.4;
+  const hpt = MAP_MM.h * 72 / 25.4;
+
+  const count = pages.length;
+  const objCount = 2 + count*3;
+  const kids = [];
+  for (let i=0;i<count;i++) kids.push(`${3+i*3} 0 R`);
+  const obj = new Array(objCount+1);
+  obj[1] = ascii(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`);
+  obj[2] = ascii(`2 0 obj\n<< /Type /Pages /Count ${count} /Kids [${kids.join(' ')}] >>\nendobj\n`);
+
+  for (let i=0;i<count;i++) {
+    const pageObj = 3+i*3, contentObj = pageObj+1, imageObj = pageObj+2;
+    obj[pageObj] = ascii(`${pageObj} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWpt.toFixed(4)} ${pageHpt.toFixed(4)}] /Resources << /XObject << /Im0 ${imageObj} 0 R >> >> /Contents ${contentObj} 0 R >>\nendobj\n`);
+    const cmd = `q\n${wpt.toFixed(4)} 0 0 ${hpt.toFixed(4)} ${xpt.toFixed(4)} ${ypt.toFixed(4)} cm\n/Im0 Do\nQ\n`;
+    const cmdBytes = ascii(cmd);
+    obj[contentObj] = bytes(ascii(`${contentObj} 0 obj\n<< /Length ${cmdBytes.length} >>\nstream\n`), cmdBytes, ascii(`endstream\nendobj\n`));
+    const jpg = pages[i];
+    obj[imageObj] = bytes(
+      ascii(`${imageObj} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imageWidth} /Height ${imageHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>\nstream\n`),
+      jpg,
+      ascii(`\nendstream\nendobj\n`)
+    );
+  }
+
+  const header = ascii('%PDF-1.4\n%Topo25000\n');
+  const offsets = new Array(objCount+1).fill(0);
+  let pos = header.length;
+  const chunks = [header];
+  for (let i=1;i<=objCount;i++) { offsets[i]=pos; chunks.push(obj[i]); pos += obj[i].length; }
+  const xrefPos = pos;
+  let xref = `xref\n0 ${objCount+1}\n0000000000 65535 f \n`;
+  for (let i=1;i<=objCount;i++) xref += `${String(offsets[i]).padStart(10,'0')} 00000 n \n`;
+  xref += `trailer\n<< /Size ${objCount+1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`;
+  chunks.push(ascii(xref));
+  return new Blob(chunks, { type: 'application/pdf' });
+}
+
+function setProgress(value, text) {
+  els.progress.classList.remove('hidden');
+  els.progressBar.style.width = `${clamp(value,0,1)*100}%`;
+  els.progressText.textContent = text;
+}
+
+async function generatePdf() {
+  if (!state.start || !state.goal) return;
+  els.pdfBtn.disabled = true;
+  const originalText = els.pdfBtn.textContent;
+  els.pdfBtn.textContent = '作成中…';
+  try {
+    const dpi = Number(els.dpiSelect.value);
+    const outW = Math.round(MAP_MM.w / 25.4 * dpi);
+    const outH = Math.round(MAP_MM.h / 25.4 * dpi);
+    const centers = choosePdfCenters(state.start, state.goal, els.multiPage.checked);
+    const jpgPages = [];
+
+    for (let i=0;i<centers.length;i++) {
+      const center = centers[i];
+      const z = chooseTileZoom(center.lat, dpi);
+      const geo = pageGeo(center, z, outW, outH);
+      const canvas = document.createElement('canvas');
+      canvas.width = outW; canvas.height = outH;
+      const ctx = canvas.getContext('2d', { alpha: false });
+      ctx.fillStyle = '#fff'; ctx.fillRect(0,0,outW,outH);
+
+      setProgress(i/centers.length, `Page ${i+1}/${centers.length}: 地理院タイルを取得中…`);
+      await drawTilesForPdf(ctx, geo, fraction => {
+        const total = (i + fraction*.82) / centers.length;
+        setProgress(total, `Page ${i+1}/${centers.length}: 地図 ${Math.round(fraction*100)}%`);
+      });
+
+      let dec;
+      if (els.declinationMode.value === 'manual') dec = Number(els.manualDeclination.value);
+      else dec = gsiDeclination2020(center.lat, center.lon);
+      if (!Number.isFinite(dec)) throw new Error('磁北偏角の値が不正です。');
+
+      drawPdfOverlay(ctx, geo, center, i+1, centers.length, dec, state.start, state.goal, dpi);
+      setProgress((i+.9)/centers.length, `Page ${i+1}/${centers.length}: PDF画像を圧縮中…`);
+      jpgPages.push(await canvasToJpegBytes(canvas));
+      canvas.width = 1; canvas.height = 1;
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    setProgress(.97, 'PDFを組み立て中…');
+    const pdf = buildPdf(jpgPages, outW, outH);
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+    const filename = `Topo25000_${stamp}.pdf`;
+    const file = new File([pdf], filename, { type: 'application/pdf' });
+    setProgress(1, `完成：${centers.length}ページ`);
+
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'Topo25000 地形図PDF' });
+    } else {
+      const url = URL.createObjectURL(pdf);
+      const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  } catch (err) {
+    console.error(err);
+    setProgress(0, `エラー：${err?.message || err}`);
+    alert(`PDF作成に失敗しました。\n${err?.message || err}\n\n通信状態と地図タイル取得を確認してください。`);
+  } finally {
+    els.pdfBtn.disabled = !(state.start && state.goal);
+    els.pdfBtn.textContent = originalText;
+  }
+}
+
+els.modeStart.addEventListener('click', () => setMode('start'));
+els.modeGoal.addEventListener('click', () => setMode('goal'));
+els.placeSearchBtn.addEventListener('click', searchPlace);
+els.placeSearchInput.addEventListener('keydown', e => { if (e.key === 'Enter') searchPlace(); });
+els.applyCoordBtn.addEventListener('click', () => {
+  const p = parseCoordinate(els.coordInput.value);
+  if (!p) { alert('「緯度, 経度」の形式で入力してください。'); return; }
+  setPoint(state.mode, p, true);
+});
+els.coordInput.addEventListener('keydown', e => { if (e.key === 'Enter') els.applyCoordBtn.click(); });
+els.zoomInBtn.addEventListener('click', () => { state.zoom = clamp(state.zoom+1, 5, 18); renderPreview(); });
+els.zoomOutBtn.addEventListener('click', () => { state.zoom = clamp(state.zoom-1, 5, 18); renderPreview(); });
+els.locateBtn.addEventListener('click', () => {
+  if (!navigator.geolocation) return alert('このブラウザでは現在地を取得できません。');
+  els.hint.textContent = '現在地を取得中…';
+  navigator.geolocation.getCurrentPosition(pos => {
+    state.center = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+    state.zoom = 15; renderPreview(); els.hint.textContent = '現在地を地図中央に表示しました';
+  }, err => { alert(`現在地を取得できませんでした: ${err.message}`); setMode(state.mode); }, { enableHighAccuracy: true, timeout: 12000 });
+});
+els.declinationMode.addEventListener('change', () => els.manualWrap.classList.toggle('hidden', els.declinationMode.value !== 'manual'));
+els.pdfBtn.addEventListener('click', generatePdf);
+
+els.canvas.addEventListener('pointerdown', e => {
+  els.canvas.setPointerCapture?.(e.pointerId);
+  state.drag = { x: e.clientX, y: e.clientY, center: { ...state.center }, moved: false };
+});
+els.canvas.addEventListener('pointermove', e => {
+  if (!state.drag) return;
+  const dx = e.clientX - state.drag.x, dy = e.clientY - state.drag.y;
+  if (Math.hypot(dx,dy) > 5) state.drag.moved = true;
+  if (!state.drag.moved) return;
+  const cp = project(state.drag.center.lat, state.drag.center.lon, state.zoom);
+  state.center = unproject(cp.x - dx, cp.y - dy, state.zoom);
+  renderPreview();
+});
+els.canvas.addEventListener('pointerup', e => {
+  if (!state.drag) return;
+  const moved = state.drag.moved;
+  state.drag = null;
+  if (!moved) setPoint(state.mode, canvasPointToLatLon(e.clientX,e.clientY));
+});
+els.canvas.addEventListener('pointercancel', () => state.drag = null);
+els.canvas.addEventListener('dblclick', e => { state.center = canvasPointToLatLon(e.clientX,e.clientY); state.zoom=clamp(state.zoom+1,5,18); renderPreview(); });
+
+window.addEventListener('resize', () => renderPreview());
+window.addEventListener('orientationchange', () => setTimeout(renderPreview, 200));
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js').catch(console.warn);
+
+renderPreview();
+
+  </script>
+</body>
+</html>
