@@ -1,6 +1,6 @@
 'use strict';
 // アプリ本体はオフラインでも開けるように保存。地図タイルは見た分だけ一定数まで保存。
-const APP_CACHE = 'topo25000-app-v8';
+const APP_CACHE = 'topo25000-app-v9';
 const TILE_CACHE = 'topo25000-tiles-v1';
 const TILE_LIMIT = 800;
 const APP_FILES = ['./', './index.html', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
@@ -27,8 +27,8 @@ self.addEventListener('fetch', e => {
   const url = new URL(req.url);
 
   if (url.origin === self.location.origin) {
-    // 本体：ネット優先、圏外なら保存版
-    e.respondWith(fetch(req).then(res => {
+    // 本体：ネット優先（ブラウザの一時保存も使わず毎回確認）、圏外なら保存版
+    e.respondWith(fetch(req, { cache: 'no-cache' }).then(res => {
       if (res.ok) { const copy = res.clone(); caches.open(APP_CACHE).then(c => c.put(req, copy)); }
       return res;
     }).catch(() => caches.match(req).then(r => r || caches.match('./index.html'))));
