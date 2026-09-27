@@ -49,6 +49,10 @@ main { max-width: 760px; margin: 0 auto; }
 .route-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
 .route-grid label, .exit-label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); }
 .exit-label { margin-top: 8px; }
+.exit-label input[type=file] { font-size: 13px; }
+.gpx-row { display: flex; gap: 8px; align-items: flex-start; }
+.gpx-row .search-status { flex: 1; }
+.gpx-row button { margin-top: 5px; font-size: 12px; padding: 4px 10px; }
 .choice-head { font-size: 12px; font-weight: 700; margin-top: 4px; }
 .trip-grid label, .settings-grid label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); }
 .badge { width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%; color: white; display: grid; place-items: center; font-weight: 800; font-size: 13px; background: var(--pt); }
@@ -139,6 +143,8 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
         <label>山頂<input id="peakInput" autocomplete="off" enterkeyhint="go" placeholder="例：剱岳" /></label>
       </div>
       <label class="exit-label">下山口（空欄なら同じ道で往復）<input id="exitInput" autocomplete="off" placeholder="例：馬場島" /></label>
+      <label class="exit-label">GPX（任意・YAMAPなどの記録）時間の計算だけに使い、地図には描きません<input id="gpxInput" type="file" /></label>
+      <div class="gpx-row"><div id="gpxStatus" class="search-status"></div><button id="gpxClearBtn" type="button" class="hidden">GPXを外す</button></div>
       <button id="buildBtn" class="primary" type="button">計画を作る</button>
       <div id="buildStatus" class="search-status" aria-live="polite"></div>
       <div id="buildChoices" class="search-results hidden"></div>
@@ -161,7 +167,7 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
       <div id="planList" class="plan-list"></div>
       <div id="planSummary" class="summary"></div>
       <div id="recordLinks" class="records"></div>
-      <p class="note">時刻は目安です（地点間を直線で結び、その下の地形の登り下りと距離から計算。道が大きく回り込む所は、途中の小屋や分岐を足すと正確になります）。実際の時刻を入れると、その地点を基準に後ろを計算し直します。空欄に戻すと自動計算に戻ります。</p>
+      <p class="note">時刻は目安です。GPXを入れると、その道の距離と登り下りで計算します（YAMAPに近い時間）。GPXが無い区間は地点間を直線で結び、その下の地形から計算します（道が回り込む所は小屋や分岐を足すと正確になります）。実際の時刻を入れると、その地点を基準に後ろを計算し直します。空欄に戻すと自動計算に戻ります。</p>
     </section>
 
     <section class="panel">
@@ -258,6 +264,7 @@ const state = {
   demTiles: new Map(),
   legProfiles: new Map(),
   profileTimer: 0,
+  track: null,
 };
 
 const $ = id => document.getElementById(id);
@@ -274,6 +281,7 @@ const els = {
   orientSelect: $('orientSelect'), dpiSelect: $('dpiSelect'), fileNameInput: $('fileNameInput'), tableCheck: $('tableCheck'), multiPage: $('multiPage'),
   declinationMode: $('declinationMode'), manualWrap: $('manualDeclinationWrap'), manualDeclination: $('manualDeclination'),
   layoutInfo: $('layoutInfo'), pdfBtn: $('pdfBtn'),
+  gpxInput: $('gpxInput'), gpxStatus: $('gpxStatus'), gpxClearBtn: $('gpxClearBtn'),
   progress: $('progress'), progressBar: $('progressBar'), progressText: $('progressText'),
 };
 
@@ -426,30 +434,153 @@ function legInfo(a, b) {
   return r && r !== 'pending' ? r : null;
 }
 
-// 目安：水平5 km/h（直線距離×1.25で道の曲がりを補正）＋登り約360 m/h＋下り約670 m/h。
+/* ---------- GPX（時間の計算だけに使う。地図には描かない） ---------- */
+
+const GPX_KEY = 'topo25000.gpx.v1';
+const GPX_MATCH_M = 250;   // 地点からこの距離以内をGPXの道の上とみなす
+const GPX_STEP_M = 10;     // 10 m未満の点は間引く
+const GPX_NOISE_M = 5;     // 5 m未満の上下は誤差として数えない
+const GPX_MAX_PTS = 12000;
+
+function parseGpx(text) {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) return null;
+  let nodes = [...doc.getElementsByTagName('trkpt')];
+  if (nodes.length < 2) nodes = [...doc.getElementsByTagName('rtept')];
+  const raw = nodes.map(n => {
+    const e = n.getElementsByTagName('ele')[0];
+    const ele = e ? Number(e.textContent) : NaN;
+    return { lat: Number(n.getAttribute('lat')), lon: Number(n.getAttribute('lon')), ele: Number.isFinite(ele) ? ele : null };
+  }).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+  if (raw.length < 2) return null;
+  const nameEl = doc.getElementsByTagName('name')[0];
+  return { name: nameEl ? nameEl.textContent.trim().slice(0, 60) : '', pts: raw };
+}
+
+function thinTrack(raw) {
+  let step = GPX_STEP_M, pts;
+  do {
+    pts = [raw[0]];
+    for (const p of raw) if (haversine(pts[pts.length - 1], p) >= step) pts.push(p);
+    const last = raw[raw.length - 1];
+    if (pts[pts.length - 1] !== last) pts.push(last);
+    step *= 2;
+  } while (pts.length > GPX_MAX_PTS);
+  return pts;
+}
+
+function setTrack(t) {
+  const pts = t.pts.map(p => ({ lat: p.lat, lon: p.lon, ele: p.ele }));
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + haversine(pts[i - 1], pts[i]));
+  const track = { name: t.name || '', pts, cum, eleReady: pts.every(p => p.ele != null), legCache: new Map() };
+  state.track = track;
+  if (!track.eleReady) {
+    // 標高が無いGPXは地理院の標高タイルで補う
+    Promise.all(pts.map(p => p.ele != null ? p.ele : demElevation(p.lat, p.lon))).then(eles => {
+      if (state.track !== track) return;
+      eles.forEach((e, i) => { pts[i].ele = e; });
+      track.eleReady = true;
+      track.legCache.clear();
+      planChanged(false);
+      renderGpxStatus();
+    });
+  }
+}
+
+function saveTrack() {
+  try {
+    if (!state.track) { localStorage.removeItem(GPX_KEY); return; }
+    localStorage.setItem(GPX_KEY, JSON.stringify({ name: state.track.name, pts: state.track.pts.map(p => [+p.lat.toFixed(6), +p.lon.toFixed(6), p.ele == null ? null : Math.round(p.ele * 10) / 10]) }));
+  } catch {}
+}
+
+function loadTrack() {
+  try {
+    const t = JSON.parse(localStorage.getItem(GPX_KEY) || 'null');
+    if (t && Array.isArray(t.pts) && t.pts.length >= 2) setTrack({ name: String(t.name || ''), pts: t.pts.map(([lat, lon, ele]) => ({ lat, lon, ele: Number.isFinite(ele) ? ele : null })) });
+  } catch {}
+}
+
+// 各地点がGPXのどこに当たるか。行程の順に前へ進みながら探す（往復の道でも行きと帰りを取り違えない）
+function trackIndices() {
+  const t = state.track;
+  if (!t) return [];
+  let cursor = 0;
+  return state.points.map(p => {
+    let best = null;
+    for (let i = cursor; i < t.pts.length; i++) {
+      const d = haversine(p, t.pts[i]);
+      if (d <= GPX_MATCH_M) { if (!best || d < best.d) best = { i, d }; }
+      else if (best) break;
+    }
+    if (best) { cursor = best.i; return best.i; }
+    // 前方に無い時（片道のGPXで往復の計画など）は一番近い所を使う
+    for (let i = 0; i < t.pts.length; i++) {
+      const d = haversine(p, t.pts[i]);
+      if (d <= GPX_MATCH_M && (!best || d < best.d)) best = { i, d };
+    }
+    return best ? best.i : null;
+  });
+}
+
+function trackLeg(ia, ib) {
+  const t = state.track;
+  if (!t || ia == null || ib == null || ia === ib || !t.eleReady) return null;
+  const key = `${ia}>${ib}`;
+  if (!t.legCache.has(key)) {
+    const step = ia < ib ? 1 : -1;
+    let up = 0, down = 0, anchor = null, max = -Infinity;
+    for (let i = ia; i !== ib + step; i += step) {
+      const e = t.pts[i].ele;
+      if (e == null) continue;
+      max = Math.max(max, e);
+      if (anchor == null) { anchor = e; continue; }
+      if (e - anchor >= GPX_NOISE_M) { up += e - anchor; anchor = e; }
+      else if (anchor - e >= GPX_NOISE_M) { down += anchor - e; anchor = e; }
+    }
+    t.legCache.set(key, { km: Math.abs(t.cum[ib] - t.cum[ia]) / 1000, up: Math.round(up), down: Math.round(down), max: Math.round(max) });
+  }
+  return t.legCache.get(key);
+}
+
+// 区間ごとの距離と登り下り。GPXの道 → 地形（直線の下）→ 地点の標高差 の順に使う
+function legStats() {
+  const idx = trackIndices();
+  const out = [null];
+  for (let i = 1; i < state.points.length; i++) {
+    const a = state.points[i - 1], b = state.points[i];
+    const tr = trackLeg(idx[i - 1], idx[i]);
+    if (tr) { out.push({ ...tr, src: 'gpx' }); continue; }
+    const km = haversine(a, b) * 1.25 / 1000;
+    const prof = legInfo(a, b);
+    if (prof) { out.push({ km, up: prof.up, down: prof.down, src: 'terrain' }); continue; }
+    const dh = (a.ele != null && b.ele != null) ? b.ele - a.ele : 0;
+    out.push({ km, up: Math.round(Math.max(dh, 0)), down: Math.round(Math.max(-dh, 0)), src: 'ele' });
+  }
+  return out;
+}
+
+// 目安：水平5 km/h＋登り約360 m/h＋下り約670 m/h。
 // YAMAPの室堂→剱沢キャンプ場（5.2 km・登り554 m・下り458 m・3時間15分）に合うよう決めた。
-// 登り下りは線の下の地形から数える（読めない間は地点の標高差だけで計算）
-function estimateMoveMinutes(a, b) {
-  const km = haversine(a, b) * 1.25 / 1000;
-  const prof = legInfo(a, b);
-  const dh = (a.ele != null && b.ele != null) ? b.ele - a.ele : 0;
-  const up = prof ? prof.up : Math.max(dh, 0);
-  const down = prof ? prof.down : Math.max(-dh, 0);
-  return km * 12 + up * 0.165 + down * 0.09;
+// GPXが無い区間は直線距離×1.25で道の曲がりを補正する
+function moveMinutes(st) {
+  return st.km * 12 + st.up * 0.165 + st.down * 0.09;
 }
 
 function computeSchedule() {
   const pace = Number(els.paceSelect.value) || 1;
   const start = parseHM(els.startTime.value) ?? 420;
   const rows = [];
+  const stats = legStats();
   let prevDep = null;
   state.points.forEach((p, i) => {
     let move = 0, auto;
     if (i === 0) auto = start;
-    else { move = Math.round(estimateMoveMinutes(state.points[i-1], p) * pace); auto = prevDep + move; }
+    else { move = Math.round(moveMinutes(stats[i]) * pace); auto = prevDep + move; }
     const arr = p.fixed ?? auto;
     const dep = arr + (Number(p.rest) || 0);
-    rows.push({ p, move, arr, dep });
+    rows.push({ p, move, arr, dep, leg: stats[i] });
     prevDep = dep;
   });
   return rows;
@@ -673,6 +804,7 @@ function planChanged(rebuildList) {
   renderRecordLinks();
   els.pdfBtn.disabled = state.points.length === 0;
   updateLayoutInfo();
+  renderGpxStatus();
   saveState();
   renderPreview();
 }
@@ -732,8 +864,8 @@ function renderPlanList() {
 function infoText(s, i) {
   const parts = [];
   if (i > 0) {
-    const prof = legInfo(state.points[i - 1], s.p);
-    parts.push(`前の地点から約${fmtDuration(s.move)}${prof ? `（登り${prof.up} m・下り${prof.down} m）` : ''}`);
+    const g = s.leg;
+    parts.push(`前の地点から約${fmtDuration(s.move)}${g && g.src !== 'ele' ? `（${g.src === 'gpx' ? 'GPX ' : ''}${g.km.toFixed(1)} km・登り${g.up} m・下り${g.down} m）` : ''}`);
   }
   if (s.p.fixed != null) parts.push('時刻を手入力');
   parts.push(`発 ${fmtHM(s.dep)}`);
@@ -757,16 +889,12 @@ function renderSummary() {
   const first = sched[0], last = sched[sched.length - 1];
   const lines = [];
   const eles = state.points.map(p => p.ele).filter(e => e != null);
-  let up = 0, down = 0, allTerrain = true;
-  for (let i = 1; i < state.points.length; i++) {
-    const prof = legInfo(state.points[i-1], state.points[i]);
-    if (prof) { up += prof.up; down += prof.down; continue; }
-    allTerrain = false;
-    const a = state.points[i-1].ele, b = state.points[i].ele;
-    if (a != null && b != null) { up += Math.max(b - a, 0); down += Math.max(a - b, 0); }
-  }
+  let up = 0, down = 0, km = 0;
+  const srcs = new Set();
+  for (const s of sched.slice(1)) { up += s.leg.up; down += s.leg.down; km += s.leg.km; srcs.add(s.leg.src); }
+  const src = srcs.has('ele') ? '（地形を読み込み中）' : srcs.has('gpx') ? (srcs.has('terrain') ? '（GPXと地形から計算）' : '（GPXから計算）') : '（地形から計算）';
   lines.push(`行動 ${fmtHM(first.arr)} → ${fmtHM(last.arr)}（${fmtDuration(last.arr - first.arr)}）`);
-  if (eles.length) lines.push(`最高 ${Math.max(...eles)} m ・ 登り計 ${up} m ・ 下り計 ${down} m${allTerrain ? '（地形から計算）' : '（地形を読み込み中）'}`);
+  if (eles.length) lines.push(`距離 約${km.toFixed(1)} km ・ 最高 ${Math.max(...eles)} m ・ 登り計 ${up} m ・ 下り計 ${down} m${src}`);
   const sun = sunTimes(els.tripDate.value, state.points[0].lat, state.points[0].lon);
   let warn = '';
   if (sun) {
@@ -899,8 +1027,8 @@ function mapMM(orient) {
 }
 
 function computeLayout() {
-  const pts = state.points;
-  if (!pts.length) return null;
+  if (!state.points.length) return null;
+  const pts = [...state.points, ...usedTrackPoints()];
   const zRef = 20;
   const px = pts.map(p => project(p.lat, p.lon, zRef));
   const minX = Math.min(...px.map(q => q.x)), maxX = Math.max(...px.map(q => q.x));
@@ -938,6 +1066,13 @@ function computeLayout() {
   }
   if (best.count > MAX_PAGES) return { orient: best.orient, mapMM: best.m, pages: [], tooMany: best.count, fits: false, cols: 0, rows: 0 };
   return { orient: best.orient, mapMM: best.m, pages, fits: best.fits, cols: best.cols, rows: best.rows };
+}
+
+// 計画の地点が乗っているGPXの範囲（印刷範囲に含める）
+function usedTrackPoints() {
+  const idx = trackIndices().filter(i => i != null);
+  if (idx.length < 2) return [];
+  return state.track.pts.slice(Math.min(...idx), Math.max(...idx) + 1);
 }
 
 // 例：20261003_剱岳_室堂
@@ -1422,9 +1557,51 @@ async function generatePdf() {
   }
 }
 
+/* ---------- GPXの読み込み ---------- */
+
+function renderGpxStatus() {
+  const t = state.track;
+  els.gpxClearBtn.classList.toggle('hidden', !t);
+  if (!t) { els.gpxStatus.textContent = ''; return; }
+  const km = (t.cum[t.cum.length - 1] / 1000).toFixed(1);
+  const idx = trackIndices();
+  const off = idx.filter(i => i == null).length;
+  let msg = `GPX読み込み済み：${t.name || '名前なし'}（${km} km）`;
+  if (!t.eleReady) msg += '・標高を読み込み中';
+  if (state.points.length && off) msg += `。GPXから${GPX_MATCH_M} m以上離れた地点が${off}か所あり、その前後は直線で計算します`;
+  els.gpxStatus.textContent = msg;
+}
+
+async function loadGpxFile(file) {
+  if (!file) return;
+  let t = null;
+  try { t = parseGpx(await file.text()); } catch {}
+  els.gpxInput.value = '';
+  if (!t) { els.gpxStatus.textContent = 'GPXを読めませんでした。YAMAPの「GPXファイル書き出し」で保存したファイルを選んでください。'; return; }
+  setTrack({ name: t.name || file.name.replace(/\.gpx$/i, ''), pts: thinTrack(t.pts) });
+  saveTrack();
+  if (!state.points.length) {
+    // 地点が無ければ、GPXの始点・最高点・終点で行程を作る
+    const pts = state.track.pts;
+    const top = pts.reduce((m, p) => (p.ele ?? -Infinity) > (m.ele ?? -Infinity) ? p : m, pts[0]);
+    const add = (p, name) => { const q = makePoint(p, name, 0); q.ele = p.ele != null ? Math.round(p.ele) : null; state.points.push(q); if (q.ele == null) fetchElevation(q); return q; };
+    add(pts[0], 'GPXの始点');
+    if (top !== pts[0] && top !== pts[pts.length - 1]) add(top, '最高点').role = 'peak';
+    add(pts[pts.length - 1], 'GPXの終点');
+    state.roundTrip = false;
+    planChanged(true);
+    fitPoints();
+  } else {
+    planChanged(true);
+  }
+  renderGpxStatus();
+}
+
 /* ---------- イベント ---------- */
 
 els.buildBtn.addEventListener('click', buildPlan);
+els.gpxInput.addEventListener('change', () => loadGpxFile(els.gpxInput.files[0]));
+els.gpxClearBtn.addEventListener('click', () => { state.track = null; saveTrack(); planChanged(true); renderGpxStatus(); });
 for (const e of [els.trailheadInput, els.peakInput, els.exitInput]) e.addEventListener('change', saveState);
 for (const e of [els.trailheadInput, els.peakInput, els.exitInput]) e.addEventListener('keydown', ev => { if (ev.key === 'Enter') buildPlan(); });
 els.placeSearchBtn.addEventListener('click', searchPlace);
@@ -1488,11 +1665,13 @@ window.addEventListener('orientationchange', () => setTimeout(renderPreview, 200
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js').catch(console.warn);
 
 loadState();
+loadTrack();
 if (!els.tripDate.value) {
   const t = new Date(Date.now() + 86400000);
   els.tripDate.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
 }
 planChanged(true);
+renderGpxStatus();
 for (const p of state.points) if (p.ele == null) fetchElevation(p);
 
   </script>
