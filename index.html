@@ -394,6 +394,15 @@ async function fetchElevation(pt) {
   }
 }
 
+// 検索・座標で追加した時は、パネルの上にある地図まで画面を戻して見せる
+function showAddedPoint() {
+  const p = state.points[state.points.length - 1];
+  if (!p) return;
+  if (state.points.length >= 2) fitPoints(); else { state.center = { lat: p.lat, lon: p.lon }; renderPreview(); }
+  els.hint.textContent = `地点${state.points.length}「${p.name}」を追加しました`;
+  document.querySelector('.map-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function movePoint(i, d) {
   const j = i + d;
   if (j < 0 || j >= state.points.length) return;
@@ -605,6 +614,7 @@ async function searchPlace() {
         state.zoom = Math.max(state.zoom, 14);
         state.center = { lat, lon };
         addPoint({ lat, lon }, title.replace(/^.*?[都道府県].*?[市町村区郡]/, '') || title);
+        showAddedPoint();
         els.searchStatus.textContent = `${title} を追加しました。`;
         els.searchResults.classList.add('hidden');
       } }, [el('strong', { textContent: title }), el('small', { textContent: `${lat.toFixed(5)}, ${lon.toFixed(5)}` })]));
@@ -1126,6 +1136,7 @@ els.applyCoordBtn.addEventListener('click', () => {
   if (!p) { alert('「緯度, 経度」の形式で入力してください。'); return; }
   state.center = { ...p };
   addPoint(p);
+  showAddedPoint();
   els.coordInput.value = '';
 });
 els.coordInput.addEventListener('keydown', e => { if (e.key === 'Enter') els.applyCoordBtn.click(); });
