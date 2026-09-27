@@ -161,7 +161,7 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
       <div id="planList" class="plan-list"></div>
       <div id="planSummary" class="summary"></div>
       <div id="recordLinks" class="records"></div>
-      <p class="note">時刻は目安です（直線距離×1.3と標高差から計算）。実際の時刻を入れると、その地点を基準に後ろを計算し直します。空欄に戻すと自動計算に戻ります。</p>
+      <p class="note">時刻は目安です（地点間を直線で結び、その下の地形の登り下りと距離から計算。道が大きく回り込む所は、途中の小屋や分岐を足すと正確になります）。実際の時刻を入れると、その地点を基準に後ろを計算し直します。空欄に戻すと自動計算に戻ります。</p>
     </section>
 
     <section class="panel">
@@ -255,6 +255,9 @@ const state = {
   renderToken: 0,
   tileCache: new Map(),
   tileCacheOrder: [],
+  demTiles: new Map(),
+  legProfiles: new Map(),
+  profileTimer: 0,
 };
 
 const $ = id => document.getElementById(id);
@@ -350,11 +353,89 @@ function fmtDuration(min) {
   return t >= 60 ? `${Math.floor(t / 60)}時間${t % 60}分` : `${t}分`;
 }
 
-// 標準的な目安：水平4 km/h（直線距離×1.3で道の曲がりを補正）、登り300 m/h、下り600 m/h を足し合わせる
+/* ---------- 地形の起伏（地理院 標高タイル） ---------- */
+
+const GSI_DEM = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/dem_png/${z}/${x}/${y}.png`;
+const DEM_Z = 14;          // 10 mメッシュ標高
+const DEM_STEP_M = 40;     // 区間を40 mごとに読む
+const DEM_NOISE_M = 8;     // 8 m未満の上下は誤差として数えない
+
+function legKey(a, b) { return `${a.lat.toFixed(5)},${a.lon.toFixed(5)}>${b.lat.toFixed(5)},${b.lon.toFixed(5)}`; }
+
+function demTile(x, y) {
+  const key = `${x}/${y}`;
+  if (!state.demTiles.has(key)) {
+    state.demTiles.set(key, (async () => {
+      const res = await fetch(GSI_DEM(DEM_Z, x, y), { mode: 'cors', cache: 'force-cache' });
+      if (!res.ok) return null; // 海など標高タイルが無い所
+      const bmp = await createImageBitmap(await res.blob());
+      const c = document.createElement('canvas');
+      c.width = TILE_SIZE; c.height = TILE_SIZE;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(bmp, 0, 0);
+      return ctx.getImageData(0, 0, TILE_SIZE, TILE_SIZE).data;
+    })().catch(() => null));
+  }
+  return state.demTiles.get(key);
+}
+
+async function demElevation(lat, lon) {
+  const q = project(lat, lon, DEM_Z);
+  const tx = Math.floor(q.x / TILE_SIZE), ty = Math.floor(q.y / TILE_SIZE);
+  const data = await demTile(tx, ty);
+  if (!data) return null;
+  const px = clamp(Math.floor(q.x - tx * TILE_SIZE), 0, 255), py = clamp(Math.floor(q.y - ty * TILE_SIZE), 0, 255);
+  const i = (py * TILE_SIZE + px) * 4;
+  const v = data[i] * 65536 + data[i + 1] * 256 + data[i + 2];
+  if (v === 8388608) return null; // 無効値
+  return (v < 8388608 ? v : v - 16777216) * 0.01;
+}
+
+// 2地点を結ぶ線の下の地形を読み、登りと下りの合計を出す
+async function legProfile(a, b) {
+  const n = clamp(Math.ceil(haversine(a, b) / DEM_STEP_M), 2, 500);
+  const pts = [];
+  for (let k = 0; k <= n; k++) pts.push({ lat: a.lat + (b.lat - a.lat) * k / n, lon: a.lon + (b.lon - a.lon) * k / n });
+  const eles = (await Promise.all(pts.map(p => demElevation(p.lat, p.lon)))).filter(e => e != null);
+  if (eles.length < 2) return null;
+  let up = 0, down = 0, anchor = eles[0], max = eles[0];
+  for (const e of eles) {
+    max = Math.max(max, e);
+    if (e - anchor >= DEM_NOISE_M) { up += e - anchor; anchor = e; }
+    else if (anchor - e >= DEM_NOISE_M) { down += anchor - e; anchor = e; }
+  }
+  return { up: Math.round(up), down: Math.round(down), max: Math.round(max) };
+}
+
+function ensureProfiles() {
+  for (let i = 1; i < state.points.length; i++) {
+    const a = state.points[i - 1], b = state.points[i];
+    const k = legKey(a, b);
+    if (state.legProfiles.has(k)) continue;
+    state.legProfiles.set(k, 'pending');
+    legProfile(a, b).then(r => {
+      state.legProfiles.set(k, r);
+      clearTimeout(state.profileTimer);
+      state.profileTimer = setTimeout(() => planChanged(false), 150);
+    });
+  }
+}
+
+function legInfo(a, b) {
+  const r = state.legProfiles.get(legKey(a, b));
+  return r && r !== 'pending' ? r : null;
+}
+
+// 目安：水平5 km/h（直線距離×1.25で道の曲がりを補正）＋登り約360 m/h＋下り約670 m/h。
+// YAMAPの室堂→剱沢キャンプ場（5.2 km・登り554 m・下り458 m・3時間15分）に合うよう決めた。
+// 登り下りは線の下の地形から数える（読めない間は地点の標高差だけで計算）
 function estimateMoveMinutes(a, b) {
-  const km = haversine(a, b) * 1.3 / 1000;
+  const km = haversine(a, b) * 1.25 / 1000;
+  const prof = legInfo(a, b);
   const dh = (a.ele != null && b.ele != null) ? b.ele - a.ele : 0;
-  return km * 15 + Math.max(dh, 0) * 0.2 + Math.max(-dh, 0) * 0.1;
+  const up = prof ? prof.up : Math.max(dh, 0);
+  const down = prof ? prof.down : Math.max(-dh, 0);
+  return km * 12 + up * 0.165 + down * 0.09;
 }
 
 function computeSchedule() {
@@ -586,6 +667,7 @@ function removePoint(i) {
 }
 
 function planChanged(rebuildList) {
+  ensureProfiles();
   if (rebuildList) renderPlanList(); else refreshPlanTimes();
   renderSummary();
   renderRecordLinks();
@@ -649,7 +731,10 @@ function renderPlanList() {
 
 function infoText(s, i) {
   const parts = [];
-  if (i > 0) parts.push(`前の地点から約${fmtDuration(s.move)}`);
+  if (i > 0) {
+    const prof = legInfo(state.points[i - 1], s.p);
+    parts.push(`前の地点から約${fmtDuration(s.move)}${prof ? `（登り${prof.up} m・下り${prof.down} m）` : ''}`);
+  }
   if (s.p.fixed != null) parts.push('時刻を手入力');
   parts.push(`発 ${fmtHM(s.dep)}`);
   return parts.join(' ・ ');
@@ -672,13 +757,16 @@ function renderSummary() {
   const first = sched[0], last = sched[sched.length - 1];
   const lines = [];
   const eles = state.points.map(p => p.ele).filter(e => e != null);
-  let up = 0, down = 0;
+  let up = 0, down = 0, allTerrain = true;
   for (let i = 1; i < state.points.length; i++) {
+    const prof = legInfo(state.points[i-1], state.points[i]);
+    if (prof) { up += prof.up; down += prof.down; continue; }
+    allTerrain = false;
     const a = state.points[i-1].ele, b = state.points[i].ele;
     if (a != null && b != null) { up += Math.max(b - a, 0); down += Math.max(a - b, 0); }
   }
   lines.push(`行動 ${fmtHM(first.arr)} → ${fmtHM(last.arr)}（${fmtDuration(last.arr - first.arr)}）`);
-  if (eles.length) lines.push(`最高 ${Math.max(...eles)} m ・ 登り計 ${up} m ・ 下り計 ${down} m（地点間の差の合計）`);
+  if (eles.length) lines.push(`最高 ${Math.max(...eles)} m ・ 登り計 ${up} m ・ 下り計 ${down} m${allTerrain ? '（地形から計算）' : '（地形を読み込み中）'}`);
   const sun = sunTimes(els.tripDate.value, state.points[0].lat, state.points[0].lon);
   let warn = '';
   if (sun) {
