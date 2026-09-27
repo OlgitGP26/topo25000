@@ -143,7 +143,7 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
         <label>山頂<input id="peakInput" autocomplete="off" enterkeyhint="go" placeholder="例：剱岳" /></label>
       </div>
       <label class="exit-label">下山口（空欄なら同じ道で往復）<input id="exitInput" autocomplete="off" placeholder="例：馬場島" /></label>
-      <label class="exit-label">GPX（任意・YAMAPなどの記録）時間の計算だけに使い、PDFには描きません<input id="gpxInput" type="file" /></label>
+      <label class="exit-label">GPX（任意・YAMAPなどの記録）時間の計算と地図の線に使います<input id="gpxInput" type="file" /></label>
       <div class="gpx-row"><div id="gpxStatus" class="search-status"></div><button id="gpxClearBtn" type="button" class="hidden">GPXを外す</button></div>
       <button id="buildBtn" class="primary" type="button">計画を作る</button>
       <div id="buildStatus" class="search-status" aria-live="polite"></div>
@@ -191,6 +191,10 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
         <label class="check-row">
           <input id="tableCheck" type="checkbox" checked />
           行程表（地点・時刻）を地図の隅に入れる
+        </label>
+        <label class="check-row">
+          <input id="gpxPdfCheck" type="checkbox" checked />
+          GPXの道をPDFにも描く（手書きする時は外す）
         </label>
         <label class="check-row">
           <input id="multiPage" type="checkbox" checked />
@@ -278,7 +282,7 @@ const els = {
   buildBtn: $('buildBtn'), buildStatus: $('buildStatus'), buildChoices: $('buildChoices'),
   planList: $('planList'), planSummary: $('planSummary'),
   locateBtn: $('locateBtn'), fitBtn: $('fitBtn'), zoomInBtn: $('zoomInBtn'), zoomOutBtn: $('zoomOutBtn'),
-  orientSelect: $('orientSelect'), dpiSelect: $('dpiSelect'), fileNameInput: $('fileNameInput'), tableCheck: $('tableCheck'), multiPage: $('multiPage'),
+  orientSelect: $('orientSelect'), dpiSelect: $('dpiSelect'), fileNameInput: $('fileNameInput'), tableCheck: $('tableCheck'), gpxPdfCheck: $('gpxPdfCheck'), multiPage: $('multiPage'),
   declinationMode: $('declinationMode'), manualWrap: $('manualDeclinationWrap'), manualDeclination: $('manualDeclination'),
   layoutInfo: $('layoutInfo'), pdfBtn: $('pdfBtn'),
   gpxInput: $('gpxInput'), gpxStatus: $('gpxStatus'), gpxClearBtn: $('gpxClearBtn'),
@@ -986,7 +990,7 @@ function saveState() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify({
       date: els.tripDate.value, start: els.startTime.value, pace: els.paceSelect.value,
-      orient: els.orientSelect.value, dpi: els.dpiSelect.value, table: els.tableCheck.checked,
+      orient: els.orientSelect.value, dpi: els.dpiSelect.value, table: els.tableCheck.checked, gpxPdf: els.gpxPdfCheck.checked,
       route: [els.trailheadInput.value, els.peakInput.value, els.exitInput.value],
       roundTrip: !!state.roundTrip,
       points: state.points.map(({ key, role, mirrorOf, name, lat, lon, ele, rest, fixed }) => ({ key, role, mirrorOf, name, lat, lon, ele, rest, fixed })),
@@ -1007,6 +1011,7 @@ function loadState() {
   if (s.orient) els.orientSelect.value = s.orient;
   if (s.dpi) els.dpiSelect.value = s.dpi;
   if (typeof s.table === 'boolean') els.tableCheck.checked = s.table;
+  if (typeof s.gpxPdf === 'boolean') els.gpxPdfCheck.checked = s.gpxPdf;
   if (Array.isArray(s.points)) {
     state.points = s.points.filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
       .map(p => ({ id: state.nextId++, key: String(p.key || Math.random().toString(36).slice(2, 10)), role: p.role === 'peak' ? 'peak' : undefined, mirrorOf: p.mirrorOf ? String(p.mirrorOf) : undefined, name: String(p.name ?? ''), lat: p.lat, lon: p.lon, ele: Number.isFinite(p.ele) ? p.ele : null, rest: Number(p.rest) || 0, fixed: Number.isFinite(p.fixed) ? p.fixed : null }));
@@ -1257,7 +1262,7 @@ async function renderPreview() {
     ctx.restore();
   }
 
-  // GPXの道（画面の確認用だけ。PDFには描かない）
+  // GPXの道（画面の確認用）
   if (state.track) {
     ctx.save();
     ctx.strokeStyle = 'rgba(255,110,0,.85)'; ctx.lineWidth = 3; ctx.lineJoin = 'round';
@@ -1441,6 +1446,16 @@ function drawPdfOverlay(ctx, geo, center, pageNo, pageCount, declination, sched,
   const mm = v => v * dpi / 25.4;
   drawMagneticLines(ctx, w, h, declination, geo.groundW);
 
+  // GPXの道（設定でオンの時だけ）。地図の文字が読めるよう半透明にする
+  if (state.track && els.gpxPdfCheck.checked) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,100,0,.7)'; ctx.lineWidth = mm(.7); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    state.track.pts.forEach((p, i) => { const q = pointToOutput(p, geo); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); });
+    ctx.stroke();
+    ctx.restore();
+  }
+
   const r = mm(1.7);
   const pts = sched.map(s => pointToOutput(s.p, geo));
   const stack = stackIndex(pts, r * 2);
@@ -1620,7 +1635,7 @@ function renderGpxStatus() {
   if (!t) { els.gpxStatus.textContent = ''; return; }
   const km = (t.cum[t.cum.length - 1] / 1000).toFixed(1);
   const idx = trackIndices();
-  let msg = `GPX読み込み済み：${t.name || '名前なし'}（${km} km）。地図にオレンジ線で表示（画面だけ・PDFには出ません）`;
+  let msg = `GPX読み込み済み：${t.name || '名前なし'}（${km} km）。地図にオレンジ線で表示（PDFに描くかは「地図PDF」の設定で選べます）`;
   if (!t.eleReady) msg += '・標高を読み込み中';
   const far = state.points.filter((p, i) => !idx[i]).map(p => p.name);
   const off = state.points.map((p, i) => idx[i] && idx[i].d > GPX_MATCH_M ? `${p.name}（約${Math.round(idx[i].d / 100) / 10} km）` : null).filter(Boolean);
@@ -1684,7 +1699,7 @@ els.applyCoordBtn.addEventListener('click', () => {
 els.coordInput.addEventListener('keydown', e => { if (e.key === 'Enter') els.applyCoordBtn.click(); });
 for (const e of [els.startTime, els.paceSelect, els.tripDate]) e.addEventListener('change', () => planChanged(true));
 for (const e of [els.orientSelect, els.multiPage]) e.addEventListener('change', () => { updateLayoutInfo(); saveState(); fitPoints(); });
-for (const e of [els.dpiSelect, els.tableCheck]) e.addEventListener('change', saveState);
+for (const e of [els.dpiSelect, els.tableCheck, els.gpxPdfCheck]) e.addEventListener('change', saveState);
 els.zoomInBtn.addEventListener('click', () => { state.zoom = clamp(state.zoom+1, 5, 18); renderPreview(); saveState(); });
 els.zoomOutBtn.addEventListener('click', () => { state.zoom = clamp(state.zoom-1, 5, 18); renderPreview(); saveState(); });
 els.locateBtn.addEventListener('click', () => {
