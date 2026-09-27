@@ -242,6 +242,8 @@ const PDF_TILE_ZMAX = 16;       // z17は地図の文字が紙上で小さすぎ
 const LABEL_PAD_M = 600;        // 地点ラベル用に行程の外側へ取る余白
 const PAGE_OVERLAP_M = 1000;    // 複数ページ時の重なり
 const STORE_KEY = 'topo25000.plan.v1';
+const FAR_WARN_M = 25000;       // 登山口と山頂がこれ以上離れていたら検索違いを疑う
+const MAX_PAGES = 12;
 
 const state = {
   center: { lat: 35.3606, lon: 138.7274 },
@@ -446,6 +448,23 @@ async function gsiSearch(q) {
   }).filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lon)).slice(0, 20);
 }
 
+// 「室堂登山口」→「室堂」のように、地名検索に載りにくい語尾を外して探し直す
+const PLACE_SUFFIX = /(登山口|登山道入口|登山道|入口|入り口|バス停|バスターミナル|ターミナル|駐車場|山頂|頂上|駅)$/;
+
+async function smartSearch(q) {
+  const base = q.replace(PLACE_SUFFIX, '').trim() || q;
+  const lists = await Promise.all([gsiSearch(q), base !== q ? gsiSearch(base) : Promise.resolve([])]);
+  const seen = new Set();
+  const all = [...lists[0], ...lists[1]].filter(r => {
+    const k = `${r.lat.toFixed(5)},${r.lon.toFixed(5)}`;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+  // 名前に検索語（語尾を外したもの）を含む候補だけを残す。「字室」のような部分一致は捨てる
+  const hit = all.filter(r => r.title.replace(/\s/g, '').includes(base));
+  return hit.length ? hit : [];
+}
+
 function nearest(list, p) {
   return list.reduce((b, r) => haversine(r, p) < haversine(b, p) ? r : b, list[0]);
 }
@@ -457,7 +476,7 @@ async function buildPlan() {
   els.buildStatus.textContent = '検索中…';
   els.buildChoices.classList.add('hidden');
   try {
-    const [th, pk, ex] = await Promise.all([gsiSearch(qTh), gsiSearch(qPk), qEx ? gsiSearch(qEx) : Promise.resolve([])]);
+    const [th, pk, ex] = await Promise.all([smartSearch(qTh), smartSearch(qPk), qEx ? smartSearch(qEx) : Promise.resolve([])]);
     const miss = [!th.length && `登山口「${qTh}」`, !pk.length && `山頂「${qPk}」`, qEx && !ex.length && `下山口「${qEx}」`].filter(Boolean);
     if (miss.length) { els.buildStatus.textContent = `${miss.join('・')}が見つかりません。別の書き方にするか、地図をタップして置いてください。`; return; }
     // 同名の場所が全国にあるので、登山口と山頂がいちばん近い組み合わせを選ぶ
@@ -479,8 +498,13 @@ async function buildPlan() {
     planChanged(true);
     fitPoints();
     const km = (bestPair.d / 1000).toFixed(1);
-    els.buildStatus.textContent = `${bestPair.t.title} → ${bestPair.s.title}（直線${km} km）${e ? ` → ${e.title}` : '・往復'}。途中の小屋や分岐を地図タップで足すと時刻が正確になります。`;
     renderChoices();
+    if (bestPair.d > FAR_WARN_M) {
+      els.buildStatus.textContent = `⚠ 登山口「${bestPair.t.title}」と山頂が直線${km} kmも離れています。別の場所を拾った可能性があります。下の候補から選び直すか、✕で消して地図を拡大し、正しい場所をタップしてください。`;
+      els.buildChoices.querySelector('div')?.classList.remove('hidden');
+      return;
+    }
+    els.buildStatus.textContent = `${bestPair.t.title} → ${bestPair.s.title}（直線${km} km）${e ? ` → ${e.title}` : '・往復'}。途中の小屋や分岐を地図タップで足すと時刻が正確になります。`;
     document.querySelector('.map-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
     console.error(err);
@@ -564,8 +588,8 @@ function planChanged(rebuildList) {
   if (rebuildList) renderPlanList(); else refreshPlanTimes();
   renderSummary();
   renderRecordLinks();
-  updateLayoutInfo();
   els.pdfBtn.disabled = state.points.length === 0;
+  updateLayoutInfo();
   saveState();
   renderPreview();
 }
@@ -823,6 +847,7 @@ function computeLayout() {
       pages.push({ center: unproject(x, y, zRef) });
     }
   }
+  if (best.count > MAX_PAGES) return { orient: best.orient, mapMM: best.m, pages: [], tooMany: best.count, fits: false, cols: 0, rows: 0 };
   return { orient: best.orient, mapMM: best.m, pages, fits: best.fits, cols: best.cols, rows: best.rows };
 }
 
@@ -830,7 +855,10 @@ function updateLayoutInfo() {
   const lay = computeLayout();
   if (!lay) { els.layoutInfo.textContent = ''; return; }
   const o = lay.orient === 'landscape' ? 'A4横' : 'A4縦';
-  if (lay.pages.length === 1) {
+  els.pdfBtn.disabled = !!lay.tooMany;
+  if (lay.tooMany) {
+    els.layoutInfo.textContent = `⚠ 範囲が広すぎます（A4で${lay.tooMany}枚）。地点の場所を確認してください。`;
+  } else if (lay.pages.length === 1) {
     els.layoutInfo.textContent = lay.fits ? `→ ${o} 1枚に収まります` : `→ ${o} 1枚（はみ出す地点があります）`;
   } else {
     els.layoutInfo.textContent = `→ ${o} ${lay.pages.length}枚（${lay.cols}列×${lay.rows}段、1 km重ね）`;
@@ -961,6 +989,16 @@ function fitPoints() {
   const lay = computeLayout();
   if (!lay) return;
   const rect = els.canvas.getBoundingClientRect();
+  if (lay.tooMany) {
+    // 範囲が広すぎる時は全地点が入る縮尺にするだけ
+    const px = state.points.map(p => project(p.lat, p.lon, 20));
+    const xs = px.map(q => q.x), ys = px.map(q => q.y);
+    state.center = unproject((Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2, 20);
+    const span = Math.max((Math.max(...xs) - Math.min(...xs)) / rect.width, (Math.max(...ys) - Math.min(...ys)) / rect.height) / .8;
+    state.zoom = clamp(Math.floor(20 - Math.log2(Math.max(span, 1e-9))), 5, 17);
+    renderPreview();
+    return;
+  }
   const lats = lay.pages.map(p => p.center.lat);
   const c = project(lats.reduce((a, b) => a + b, 0) / lats.length, lay.pages.reduce((a, p) => a + p.center.lon, 0) / lay.pages.length, 20);
   state.center = unproject(c.x, c.y, 20);
@@ -1228,7 +1266,7 @@ function setProgress(value, text) {
 
 async function generatePdf() {
   const lay = computeLayout();
-  if (!lay) return;
+  if (!lay || lay.tooMany) return;
   els.pdfBtn.disabled = true;
   const originalText = els.pdfBtn.textContent;
   els.pdfBtn.textContent = '作成中…';
@@ -1279,8 +1317,8 @@ async function generatePdf() {
     setProgress(0, `エラー：${err?.message || err}`);
     alert(`PDF作成に失敗しました。\n${err?.message || err}\n\n通信状態と地図タイル取得を確認してください。`);
   } finally {
-    els.pdfBtn.disabled = state.points.length === 0;
     els.pdfBtn.textContent = originalText;
+    updateLayoutInfo();
   }
 }
 
