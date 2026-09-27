@@ -46,6 +46,10 @@ main { max-width: 760px; margin: 0 auto; }
 .panel { margin: 12px; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 2px 14px #0000000d; }
 .panel h2 { margin: 0 0 10px; font-size: 15px; }
 .trip-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.route-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.route-grid label, .exit-label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); }
+.exit-label { margin-top: 8px; }
+.choice-head { font-size: 12px; font-weight: 700; margin-top: 4px; }
 .trip-grid label, .settings-grid label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); }
 .badge { width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%; color: white; display: grid; place-items: center; font-weight: 800; font-size: 13px; background: var(--pt); }
 .badge.first { background: var(--start); }
@@ -112,7 +116,7 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
         <button id="zoomOutBtn" type="button" aria-label="縮小">−</button>
         <button id="fitBtn" type="button" aria-label="印刷範囲を表示" style="font-size:18px">⤢</button>
       </div>
-      <div id="mapHint" class="map-hint">地図をタップして地点を追加（登山口→分岐→山頂…の順）</div>
+      <div id="mapHint" class="map-hint">登山口と山頂を入れて「計画を作る」。途中の地点は地図をタップ</div>
     </section>
 
     <section class="panel">
@@ -130,17 +134,29 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
         </label>
       </div>
 
-      <div class="input-row">
-        <input id="placeSearchInput" autocomplete="off" enterkeyhint="search" placeholder="地名・山名で地点を追加 例：谷川岳、土合駅" />
-        <button id="placeSearchBtn" type="button">検索</button>
+      <div class="route-grid">
+        <label>登山口<input id="trailheadInput" autocomplete="off" placeholder="例：室堂" /></label>
+        <label>山頂<input id="peakInput" autocomplete="off" enterkeyhint="go" placeholder="例：剱岳" /></label>
       </div>
-      <div id="searchStatus" class="search-status"></div>
-      <div id="searchResults" class="search-results hidden" aria-live="polite"></div>
+      <label class="exit-label">下山口（空欄なら同じ道で往復）<input id="exitInput" autocomplete="off" placeholder="例：馬場島" /></label>
+      <button id="buildBtn" class="primary" type="button">計画を作る</button>
+      <div id="buildStatus" class="search-status" aria-live="polite"></div>
+      <div id="buildChoices" class="search-results hidden"></div>
 
-      <div class="input-row">
-        <input id="coordInput" inputmode="decimal" autocomplete="off" placeholder="緯度, 経度 例 35.3606, 138.7274" />
-        <button id="applyCoordBtn" type="button">追加</button>
-      </div>
+      <details>
+        <summary>途中の地点を追加（小屋・分岐など）</summary>
+        <p class="note">地図をタップしても追加できます。行程のいちばん近い位置に自動で入ります。</p>
+        <div class="input-row">
+          <input id="placeSearchInput" autocomplete="off" enterkeyhint="search" placeholder="地名で追加 例：剣山荘" />
+          <button id="placeSearchBtn" type="button">検索</button>
+        </div>
+        <div id="searchStatus" class="search-status"></div>
+        <div id="searchResults" class="search-results hidden" aria-live="polite"></div>
+        <div class="input-row">
+          <input id="coordInput" inputmode="decimal" autocomplete="off" placeholder="緯度, 経度 例 35.3606, 138.7274" />
+          <button id="applyCoordBtn" type="button">追加</button>
+        </div>
+      </details>
 
       <div id="planList" class="plan-list"></div>
       <div id="planSummary" class="summary"></div>
@@ -245,6 +261,8 @@ const els = {
   placeSearchInput: $('placeSearchInput'), placeSearchBtn: $('placeSearchBtn'),
   searchStatus: $('searchStatus'), searchResults: $('searchResults'),
   coordInput: $('coordInput'), applyCoordBtn: $('applyCoordBtn'),
+  trailheadInput: $('trailheadInput'), peakInput: $('peakInput'), exitInput: $('exitInput'),
+  buildBtn: $('buildBtn'), buildStatus: $('buildStatus'), buildChoices: $('buildChoices'),
   planList: $('planList'), planSummary: $('planSummary'),
   locateBtn: $('locateBtn'), fitBtn: $('fitBtn'), zoomInBtn: $('zoomInBtn'), zoomOutBtn: $('zoomOutBtn'),
   orientSelect: $('orientSelect'), dpiSelect: $('dpiSelect'), tableCheck: $('tableCheck'), multiPage: $('multiPage'),
@@ -371,16 +389,137 @@ function sunTimes(dateStr, lat, lon) {
 
 /* ---------- 地点の追加・編集 ---------- */
 
+function makePoint(p, name, rest) {
+  return { id: state.nextId++, key: Math.random().toString(36).slice(2, 10), name, lat: p.lat, lon: p.lon, ele: null, rest, fixed: null };
+}
+
+// 途中の地点は、行程に入れた時に遠回りが最も少ない位置へ入れる
 function addPoint(p, name) {
-  const idx = state.points.length;
-  const pt = {
-    id: state.nextId++,
-    name: name || (idx === 0 ? '登山口' : `地点${idx + 1}`),
-    lat: p.lat, lon: p.lon, ele: null, rest: idx === 0 ? 0 : 5, fixed: null,
-  };
-  state.points.push(pt);
+  const pts = state.points;
+  let at = pts.length;
+  const peakAt = pts.findIndex(q => q.role === 'peak');
+  // 往復の時は登りの区間に入れ、下りには同じ地点を逆順で自動で入れる
+  const lastLeg = state.roundTrip && peakAt > 0 ? peakAt : pts.length - 1;
+  if (pts.length >= 2) {
+    let best = Infinity;
+    for (let i = 1; i <= lastLeg; i++) {
+      const cost = haversine(pts[i-1], p) + haversine(p, pts[i]) - haversine(pts[i-1], pts[i]);
+      if (cost < best) { best = cost; at = i; }
+    }
+  }
+  const pt = makePoint(p, name || (pts.length === 0 ? '登山口' : '経由地'), pts.length === 0 ? 0 : 5);
+  pts.splice(at, 0, pt);
+  state.lastAdded = pt;
+  syncDescent();
   fetchElevation(pt);
   planChanged(true);
+}
+
+// 往復：下りの経由地を「登りの経由地の逆順」に作り直す（休憩・手入力時刻は引き継ぐ）
+function syncDescent() {
+  if (!state.roundTrip) return;
+  const pts = state.points;
+  const pi = pts.findIndex(q => q.role === 'peak');
+  if (pi < 1 || pts.length < 3) return;
+  const ascent = pts.slice(1, pi);
+  const oldDesc = pts.slice(pi + 1, pts.length - 1);
+  const desc = ascent.slice().reverse().map(a => {
+    const old = oldDesc.find(d => d.mirrorOf === a.key);
+    const d = old || { ...makePoint(a, a.name, 5), mirrorOf: a.key };
+    Object.assign(d, { name: a.name, lat: a.lat, lon: a.lon, ele: a.ele });
+    return d;
+  });
+  state.points = [...pts.slice(0, pi + 1), ...desc, pts[pts.length - 1]];
+  const end = state.points[state.points.length - 1];
+  Object.assign(end, { name: pts[0].name, lat: pts[0].lat, lon: pts[0].lon, ele: pts[0].ele });
+}
+
+/* ---------- 登山口と山頂から計画を作る ---------- */
+
+async function gsiSearch(q) {
+  const res = await fetch(`${GSI_PLACE_SEARCH}?q=${encodeURIComponent(q)}`, { mode: 'cors', cache: 'no-store' });
+  if (!res.ok) throw new Error(`検索サーバー応答 ${res.status}`);
+  const data = await res.json();
+  return (Array.isArray(data) ? data : []).map(item => {
+    const c = item?.geometry?.coordinates;
+    return { title: item?.properties?.title || q, lon: Number(c?.[0]), lat: Number(c?.[1]) };
+  }).filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lon)).slice(0, 20);
+}
+
+function nearest(list, p) {
+  return list.reduce((b, r) => haversine(r, p) < haversine(b, p) ? r : b, list[0]);
+}
+
+async function buildPlan() {
+  const qTh = els.trailheadInput.value.trim(), qPk = els.peakInput.value.trim(), qEx = els.exitInput.value.trim();
+  if (!qTh || !qPk) { els.buildStatus.textContent = '登山口と山頂を入力してください。'; return; }
+  els.buildBtn.disabled = true;
+  els.buildStatus.textContent = '検索中…';
+  els.buildChoices.classList.add('hidden');
+  try {
+    const [th, pk, ex] = await Promise.all([gsiSearch(qTh), gsiSearch(qPk), qEx ? gsiSearch(qEx) : Promise.resolve([])]);
+    const miss = [!th.length && `登山口「${qTh}」`, !pk.length && `山頂「${qPk}」`, qEx && !ex.length && `下山口「${qEx}」`].filter(Boolean);
+    if (miss.length) { els.buildStatus.textContent = `${miss.join('・')}が見つかりません。別の書き方にするか、地図をタップして置いてください。`; return; }
+    // 同名の場所が全国にあるので、登山口と山頂がいちばん近い組み合わせを選ぶ
+    let bestPair = null;
+    for (const s of pk) for (const t of th) {
+      const d = haversine(s, t);
+      if (!bestPair || d < bestPair.d) bestPair = { s, t, d };
+    }
+    const e = ex.length ? nearest(ex, bestPair.s) : null;
+    state.cands = { th, pk, ex };
+    const start = makePoint(bestPair.t, qTh, 0);
+    const peak = makePoint(bestPair.s, qPk, 20);
+    peak.role = 'peak';
+    const end = makePoint(e || bestPair.t, qEx || qTh, 0);
+    state.points = [start, peak, end];
+    state.roundTrip = !e;
+    state.lastAdded = peak;
+    for (const p of state.points) fetchElevation(p);
+    planChanged(true);
+    fitPoints();
+    const km = (bestPair.d / 1000).toFixed(1);
+    els.buildStatus.textContent = `${bestPair.t.title} → ${bestPair.s.title}（直線${km} km）${e ? ` → ${e.title}` : '・往復'}。途中の小屋や分岐を地図タップで足すと時刻が正確になります。`;
+    renderChoices();
+    document.querySelector('.map-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    console.error(err);
+    els.buildStatus.textContent = '検索に失敗しました。インターネット接続を確認してください。';
+  } finally {
+    els.buildBtn.disabled = false;
+  }
+}
+
+// 自動で選んだ場所が違う時のために、候補から選び直せるようにする
+function renderChoices() {
+  const box = els.buildChoices;
+  box.innerHTML = '';
+  const c = state.cands;
+  if (!c) return;
+  const groups = [['登山口', c.th, 0], ['山頂', c.pk, 1], ['下山口', c.ex, 2]].filter(g => g[1].length > 1);
+  if (!groups.length) return;
+  const toggle = el('button', { type: 'button', class: 'small-btn', textContent: '場所が違う時は候補から選び直す', style: 'padding:8px 12px' });
+  const list = el('div', { class: 'hidden', style: 'display:grid;gap:6px' });
+  toggle.addEventListener('click', () => list.classList.toggle('hidden'));
+  for (const [label, arr, which] of groups) {
+    list.append(el('div', { class: 'choice-head', textContent: label }));
+    const ref = state.points[which === 0 ? 1 : 0];
+    for (const r of [...arr].sort((a, b) => haversine(a, ref) - haversine(b, ref)).slice(0, 8)) {
+      list.append(el('button', { type: 'button', class: 'search-result', onclick: () => {
+        const idx = which === 0 ? 0 : which === 1 ? 1 : state.points.length - 1;
+        const targets = which === 0 && !c.ex.length ? [0, state.points.length - 1] : [idx];
+        for (const t of targets) {
+          const p = state.points[t];
+          if (!p) continue;
+          p.lat = r.lat; p.lon = r.lon; p.ele = null; fetchElevation(p);
+        }
+        planChanged(true); fitPoints();
+        els.buildStatus.textContent = `${label}を「${r.title}」に変えました。`;
+      } }, [el('strong', { textContent: r.title }), el('small', { textContent: `${label === '登山口' ? '山頂' : '登山口'}から直線 ${(haversine(r, ref) / 1000).toFixed(1)} km` })]));
+    }
+  }
+  box.append(toggle, list);
+  box.classList.remove('hidden');
 }
 
 async function fetchElevation(pt) {
@@ -388,21 +527,36 @@ async function fetchElevation(pt) {
     const res = await fetch(GSI_ELEVATION(pt.lat.toFixed(6), pt.lon.toFixed(6)), { mode: 'cors' });
     const data = await res.json();
     const e = Number(data?.elevation);
-    if (Number.isFinite(e)) { pt.ele = Math.round(e); planChanged(true); }
+    if (Number.isFinite(e)) { pt.ele = Math.round(e); syncDescent(); planChanged(true); }
   } catch (err) {
     console.warn('標高取得に失敗', err);
   }
 }
 
+// 検索・座標で追加した時は、パネルの上にある地図まで画面を戻して見せる
+function showAddedPoint() {
+  const p = state.lastAdded;
+  if (!p) return;
+  if (state.points.length >= 2) fitPoints(); else { state.center = { lat: p.lat, lon: p.lon }; renderPreview(); }
+  els.hint.textContent = `地点${state.points.indexOf(p) + 1}「${p.name}」を追加しました`;
+  document.querySelector('.map-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function movePoint(i, d) {
   const j = i + d;
   if (j < 0 || j >= state.points.length) return;
+  const pi = state.points.findIndex(q => q.role === 'peak');
+  if (state.roundTrip && (Math.max(i, j) >= pi || Math.min(i, j) === 0)) state.roundTrip = false; // 手で並べ替えたら自由編集に切り替える
   [state.points[i], state.points[j]] = [state.points[j], state.points[i]];
+  syncDescent();
   planChanged(true);
 }
 
 function removePoint(i) {
-  state.points.splice(i, 1);
+  const [gone] = state.points.splice(i, 1);
+  if (gone?.role === 'peak') state.roundTrip = false;
+  if (gone?.mirrorOf) state.points.find(q => q.key === gone.mirrorOf) && (state.points = state.points.filter(q => q.key !== gone.mirrorOf));
+  syncDescent();
   planChanged(true);
 }
 
@@ -436,7 +590,7 @@ function renderPlanList() {
   const sched = computeSchedule();
   state.points.forEach((p, i) => {
     const s = sched[i];
-    const nameIn = el('input', { value: p.name, 'ariaLabel': '地点名', oninput: e => { p.name = e.target.value; saveState(); renderPreview(); renderRecordLinks(); } });
+    const nameIn = el('input', { value: p.name, 'ariaLabel': '地点名', oninput: e => { p.name = e.target.value; for (const q of state.points) if (q.mirrorOf === p.key || (state.roundTrip && i === 0 && q === state.points[state.points.length - 1])) q.name = p.name; els.planList.querySelectorAll('.plan-row').forEach((row, k) => { if (k !== i) row.querySelector('.r1 input').value = state.points[k]?.name ?? ''; }); saveState(); renderPreview(); renderRecordLinks(); } });
     const timeIn = el('input', { type: 'time', value: fmtHM(s.arr).replace('翌', ''), className: p.fixed != null ? 'fixed' : '', onchange: e => {
       const v = parseHM(e.target.value);
       p.fixed = v;
@@ -547,7 +701,9 @@ function saveState() {
     localStorage.setItem(STORE_KEY, JSON.stringify({
       date: els.tripDate.value, start: els.startTime.value, pace: els.paceSelect.value,
       orient: els.orientSelect.value, dpi: els.dpiSelect.value, table: els.tableCheck.checked,
-      points: state.points.map(({ name, lat, lon, ele, rest, fixed }) => ({ name, lat, lon, ele, rest, fixed })),
+      route: [els.trailheadInput.value, els.peakInput.value, els.exitInput.value],
+      roundTrip: !!state.roundTrip,
+      points: state.points.map(({ key, role, mirrorOf, name, lat, lon, ele, rest, fixed }) => ({ key, role, mirrorOf, name, lat, lon, ele, rest, fixed })),
       center: state.center, zoom: state.zoom,
     }));
   } catch {}
@@ -558,6 +714,8 @@ function loadState() {
   try { s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch {}
   if (!s) return;
   if (s.date) els.tripDate.value = s.date;
+  state.roundTrip = !!s.roundTrip;
+  if (Array.isArray(s.route)) [els.trailheadInput.value, els.peakInput.value, els.exitInput.value] = s.route.map(v => String(v ?? ''));
   if (s.start) els.startTime.value = s.start;
   if (s.pace) els.paceSelect.value = s.pace;
   if (s.orient) els.orientSelect.value = s.orient;
@@ -565,7 +723,7 @@ function loadState() {
   if (typeof s.table === 'boolean') els.tableCheck.checked = s.table;
   if (Array.isArray(s.points)) {
     state.points = s.points.filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
-      .map(p => ({ id: state.nextId++, name: String(p.name ?? ''), lat: p.lat, lon: p.lon, ele: Number.isFinite(p.ele) ? p.ele : null, rest: Number(p.rest) || 0, fixed: Number.isFinite(p.fixed) ? p.fixed : null }));
+      .map(p => ({ id: state.nextId++, key: String(p.key || Math.random().toString(36).slice(2, 10)), role: p.role === 'peak' ? 'peak' : undefined, mirrorOf: p.mirrorOf ? String(p.mirrorOf) : undefined, name: String(p.name ?? ''), lat: p.lat, lon: p.lon, ele: Number.isFinite(p.ele) ? p.ele : null, rest: Number(p.rest) || 0, fixed: Number.isFinite(p.fixed) ? p.fixed : null }));
   }
   if (s.center && Number.isFinite(s.center.lat)) state.center = s.center;
   if (Number.isFinite(s.zoom)) state.zoom = s.zoom;
@@ -597,7 +755,7 @@ async function searchPlace() {
       els.searchStatus.textContent = '候補が見つかりませんでした。市町村名などを加えて再検索してください。';
       return;
     }
-    els.searchStatus.textContent = `${valid.length}件。候補をタップすると地点${state.points.length + 1}として追加します。`;
+    els.searchStatus.textContent = `${valid.length}件。候補をタップすると行程に追加します。`;
     for (const item of valid) {
       const [lon, lat] = item.geometry.coordinates.map(Number);
       const title = item?.properties?.title || q;
@@ -605,6 +763,7 @@ async function searchPlace() {
         state.zoom = Math.max(state.zoom, 14);
         state.center = { lat, lon };
         addPoint({ lat, lon }, title.replace(/^.*?[都道府県].*?[市町村区郡]/, '') || title);
+        showAddedPoint();
         els.searchStatus.textContent = `${title} を追加しました。`;
         els.searchResults.classList.add('hidden');
       } }, [el('strong', { textContent: title }), el('small', { textContent: `${lat.toFixed(5)}, ${lon.toFixed(5)}` })]));
@@ -715,6 +874,11 @@ function drawPointMarker(ctx, x, y, r, label, first) {
   ctx.restore();
 }
 
+// 往復で登山口と下山口が同じ場所など、重なる地点はラベルを下へ並べる
+function stackIndex(xy, near) {
+  return xy.map((q, i) => xy.slice(0, i).filter(o => Math.hypot(o.x - q.x, o.y - q.y) < near).length);
+}
+
 function drawPointLabel(ctx, x, y, r, text, fontPx) {
   ctx.save();
   ctx.font = `700 ${fontPx}px -apple-system,"Hiragino Sans",sans-serif`;
@@ -784,10 +948,12 @@ async function renderPreview() {
   }
 
   const sched = computeSchedule();
+  const scr = sched.map(s => toScreen(s.p));
+  const stack = stackIndex(scr, 12);
   sched.forEach((s, i) => {
-    const q = toScreen(s.p);
-    drawPointMarker(ctx, q.x, q.y, 10, String(i + 1), i === 0);
-    if (z >= 13) drawPointLabel(ctx, q.x, q.y, 10, `${s.p.name} ${fmtHM(s.arr)}`, 12);
+    const q = scr[i];
+    if (stack[i] === 0) drawPointMarker(ctx, q.x, q.y, 10, String(i + 1), i === 0);
+    if (z >= 13) drawPointLabel(ctx, q.x, q.y + stack[i] * 15, 10, `${stack[i] ? `${i + 1} ` : ''}${s.p.name} ${fmtHM(s.arr)}`, 12);
   });
 }
 
@@ -947,11 +1113,12 @@ function drawPdfOverlay(ctx, geo, center, pageNo, pageCount, declination, sched,
 
   const r = mm(1.7);
   const pts = sched.map(s => pointToOutput(s.p, geo));
+  const stack = stackIndex(pts, r * 2);
   sched.forEach((s, i) => {
     const q = pts[i];
     if (q.x < -r || q.x > w + r || q.y < -r || q.y > h + r) return;
-    drawPointMarker(ctx, q.x, q.y, r, String(i + 1), i === 0);
-    drawPointLabel(ctx, q.x, q.y, r, `${s.p.name} ${fmtHM(s.arr)}`, mm(2.4));
+    if (stack[i] === 0) drawPointMarker(ctx, q.x, q.y, r, String(i + 1), i === 0);
+    drawPointLabel(ctx, q.x, q.y + stack[i] * mm(3.1), r, `${stack[i] ? `${i + 1} ` : ''}${s.p.name} ${fmtHM(s.arr)}`, mm(2.4));
   });
 
   // border
@@ -1119,6 +1286,9 @@ async function generatePdf() {
 
 /* ---------- イベント ---------- */
 
+els.buildBtn.addEventListener('click', buildPlan);
+for (const e of [els.trailheadInput, els.peakInput, els.exitInput]) e.addEventListener('change', saveState);
+for (const e of [els.trailheadInput, els.peakInput, els.exitInput]) e.addEventListener('keydown', ev => { if (ev.key === 'Enter') buildPlan(); });
 els.placeSearchBtn.addEventListener('click', searchPlace);
 els.placeSearchInput.addEventListener('keydown', e => { if (e.key === 'Enter') searchPlace(); });
 els.applyCoordBtn.addEventListener('click', () => {
@@ -1126,6 +1296,7 @@ els.applyCoordBtn.addEventListener('click', () => {
   if (!p) { alert('「緯度, 経度」の形式で入力してください。'); return; }
   state.center = { ...p };
   addPoint(p);
+  showAddedPoint();
   els.coordInput.value = '';
 });
 els.coordInput.addEventListener('keydown', e => { if (e.key === 'Enter') els.applyCoordBtn.click(); });
