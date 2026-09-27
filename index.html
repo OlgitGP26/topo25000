@@ -2,11 +2,15 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#13251b" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Topo25000" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./icons/icon-180.png" />
+  <link rel="icon" type="image/png" href="./icons/icon-192.png" />
   <style>
 :root {
   color-scheme: light dark;
@@ -17,7 +21,8 @@
   --line: #d9dfda;
   --accent: #173f2c;
   --start: #bf2b2b;
-  --goal: #2458a8;
+  --pt: #1d4f9b;
+  --warn: #9b3d00;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; background: var(--bg); color: var(--text); }
@@ -37,38 +42,45 @@ main { max-width: 760px; margin: 0 auto; }
 .map-crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -52%); color: #0008; font-size: 28px; font-weight: 300; pointer-events: none; }
 .zoom-controls { position: absolute; right: 12px; top: 12px; display: grid; gap: 6px; }
 .zoom-controls button { width: 42px; height: 42px; border-radius: 10px; border: 1px solid #0002; background: #fffc; color: #182019; font-size: 24px; box-shadow: 0 1px 8px #0002; }
-.map-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); background: #111d; color: white; padding: 8px 12px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+.map-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); background: #111d; color: white; padding: 8px 12px; border-radius: 999px; font-size: 12px; white-space: nowrap; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; }
 .panel { margin: 12px; padding: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 2px 14px #0000000d; }
-.segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.segmented button { padding: 12px 8px; border: 1px solid var(--line); border-radius: 12px; background: transparent; font-weight: 700; }
-.segmented button.active.start { background: #fff0f0; border-color: #e3a7a7; color: #8d1717; }
-.segmented button.active.goal { background: #edf4ff; border-color: #a8bfe5; color: #173f7c; }
-.point-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-.point { border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; gap: 8px; align-items: center; min-width: 0; }
-.badge { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; color: white; display: grid; place-items: center; font-weight: 800; }
-.badge.start { background: var(--start); }
-.badge.goal { background: var(--goal); }
-.point strong { display: block; font-size: 12px; }
-.point small { display: block; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.panel h2 { margin: 0 0 10px; font-size: 15px; }
+.trip-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.trip-grid label, .settings-grid label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); }
+.badge { width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%; color: white; display: grid; place-items: center; font-weight: 800; font-size: 13px; background: var(--pt); }
+.badge.first { background: var(--start); }
 .input-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 10px; }
-input, select { width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); padding: 11px; }
-.input-row button { border: 1px solid var(--line); border-radius: 10px; padding: 0 14px; background: transparent; }
+input, select { width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); padding: 10px; min-width: 0; }
+.input-row button, .small-btn { border: 1px solid var(--line); border-radius: 10px; padding: 0 14px; background: transparent; color: var(--text); }
 .search-status { margin-top: 7px; font-size: 11px; color: var(--muted); min-height: 1.3em; }
 .search-results { display: grid; gap: 7px; margin-top: 7px; max-height: 230px; overflow: auto; }
 .search-result { width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 11px; background: var(--card); color: var(--text); padding: 9px 10px; cursor: pointer; }
-.search-result:hover { border-color: #789080; }
 .search-result strong { display: block; font-size: 13px; line-height: 1.35; }
 .search-result small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
-.search-help { margin: 7px 1px 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.plan-list { display: grid; gap: 8px; margin-top: 12px; }
+.plan-empty { color: var(--muted); font-size: 12px; padding: 10px; border: 1px dashed var(--line); border-radius: 12px; text-align: center; }
+.plan-row { border: 1px solid var(--line); border-radius: 12px; padding: 8px; display: grid; gap: 6px; }
+.plan-row .r1 { display: grid; grid-template-columns: auto 1fr auto auto auto; gap: 6px; align-items: center; }
+.plan-row .r2 { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 6px; align-items: end; }
+.plan-row .r2 label { display: grid; gap: 3px; font-size: 10px; color: var(--muted); }
+.plan-row .r1 button { width: 34px; height: 36px; border: 1px solid var(--line); border-radius: 9px; background: transparent; color: var(--text); padding: 0; }
+.plan-row input { padding: 7px 8px; }
+.plan-row .info { font-size: 11px; color: var(--muted); }
+.plan-row input.fixed { border-color: var(--warn); }
+.summary { margin-top: 10px; font-size: 12px; line-height: 1.6; }
+.summary .warn { color: var(--warn); font-weight: 700; }
+.records { margin-top: 10px; display: grid; gap: 6px; font-size: 12px; }
+.records .links { display: flex; flex-wrap: wrap; gap: 6px; }
+.records a { display: inline-block; padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--text); text-decoration: none; }
 details { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
 summary { font-weight: 700; cursor: pointer; }
 .settings-grid { display: grid; gap: 10px; margin-top: 10px; }
-.settings-grid label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
 .check-row { grid-template-columns: auto 1fr !important; align-items: center; }
 .check-row input { width: auto; }
 .hidden { display: none !important; }
 .primary { width: 100%; margin-top: 14px; padding: 14px; border: 0; border-radius: 12px; background: var(--accent); color: white; font-weight: 800; font-size: 16px; }
 .primary:disabled { opacity: .45; }
+.layout-info { margin-top: 8px; font-size: 12px; font-weight: 700; }
 .progress { margin-top: 12px; display: grid; gap: 5px; }
 .progress-track { height: 8px; border-radius: 999px; overflow: hidden; background: #ccd3cd; }
 #progressBar { width: 0%; height: 100%; background: var(--accent); transition: width .15s linear; }
@@ -76,12 +88,9 @@ summary { font-weight: 700; cursor: pointer; }
 .note { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 10px 2px 0; }
 footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(--muted); font-size: 10px; line-height: 1.5; display: grid; gap: 2px; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #101511; --card: #172019; --text: #eef3ef; --muted: #a7b0a9; --line: #334038; --accent: #2d6a4a; }
-  .segmented button.active.start { background: #3b1d1d; color: #ffb5b5; border-color: #754141; }
-  .segmented button.active.goal { background: #172d4c; color: #b9d3ff; border-color: #385b89; }
+  :root { --bg: #101511; --card: #172019; --text: #eef3ef; --muted: #a7b0a9; --line: #334038; --accent: #2d6a4a; --warn: #ffb070; }
   .zoom-controls button { background: #172019e8; color: white; border-color: #ffffff26; }
 }
-
   </style>
   <title>Topo25000</title>
 </head>
@@ -89,56 +98,86 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
   <header class="topbar">
     <div>
       <h1>Topo25000</h1>
-      <p>登山用 1:25,000 地形図PDF</p>
+      <p>1:25,000 地形図PDF＋行動計画</p>
     </div>
     <button id="locateBtn" class="icon-btn" type="button" aria-label="現在地">◎</button>
   </header>
-
-  <div style="max-width:980px;margin:8px auto 0;padding:0 12px;font-size:12px;opacity:.8">Desktop版 v3：地名検索対応。このHTMLだけで起動します。地図・地名検索時のみ国土地理院へ通信します。</div>
 
   <main>
     <section class="map-card" aria-label="地図">
       <canvas id="mapCanvas"></canvas>
       <div class="map-crosshair" aria-hidden="true">+</div>
       <div class="zoom-controls">
-        <button id="zoomInBtn" type="button">＋</button>
-        <button id="zoomOutBtn" type="button">−</button>
+        <button id="zoomInBtn" type="button" aria-label="拡大">＋</button>
+        <button id="zoomOutBtn" type="button" aria-label="縮小">−</button>
+        <button id="fitBtn" type="button" aria-label="印刷範囲を表示" style="font-size:18px">⤢</button>
       </div>
-      <div id="mapHint" class="map-hint">STARTを選び、地図をタップ</div>
+      <div id="mapHint" class="map-hint">地図をタップして地点を追加（登山口→分岐→山頂…の順）</div>
     </section>
 
     <section class="panel">
-      <div class="segmented" role="group" aria-label="地点選択">
-        <button id="modeStart" class="active start" type="button">STARTを設定</button>
-        <button id="modeGoal" class="goal" type="button">GOALを設定</button>
-      </div>
-
-      <div class="point-grid">
-        <div class="point start-point">
-          <span class="badge start">S</span>
-          <div><strong>START</strong><small id="startText">未設定</small></div>
-        </div>
-        <div class="point goal-point">
-          <span class="badge goal">G</span>
-          <div><strong>GOAL</strong><small id="goalText">未設定</small></div>
-        </div>
+      <h2>山行日と行動開始</h2>
+      <div class="trip-grid">
+        <label>山行日<input id="tripDate" type="date" /></label>
+        <label>行動開始<input id="startTime" type="time" value="07:00" /></label>
+        <label>歩く速さ
+          <select id="paceSelect">
+            <option value="0.8">速い ×0.8</option>
+            <option value="1" selected>標準 ×1.0</option>
+            <option value="1.2">ゆっくり ×1.2</option>
+            <option value="1.4">かなりゆっくり ×1.4</option>
+          </select>
+        </label>
       </div>
 
       <div class="input-row">
-        <input id="placeSearchInput" autocomplete="off" enterkeyhint="search" placeholder="地名・山名・施設名 例：谷川岳、鳩待峠" />
+        <input id="placeSearchInput" autocomplete="off" enterkeyhint="search" placeholder="地名・山名で地点を追加 例：谷川岳、土合駅" />
         <button id="placeSearchBtn" type="button">検索</button>
       </div>
       <div id="searchStatus" class="search-status"></div>
       <div id="searchResults" class="search-results hidden" aria-live="polite"></div>
-      <p class="search-help">候補をクリックすると、現在選択中のSTARTまたはGOALに設定します。検索語は国土地理院の地名検索へ送信されます。</p>
 
       <div class="input-row">
         <input id="coordInput" inputmode="decimal" autocomplete="off" placeholder="緯度, 経度 例 35.3606, 138.7274" />
-        <button id="applyCoordBtn" type="button">設定</button>
+        <button id="applyCoordBtn" type="button">追加</button>
+      </div>
+
+      <div id="planList" class="plan-list"></div>
+      <div id="planSummary" class="summary"></div>
+      <div id="recordLinks" class="records"></div>
+      <p class="note">時刻は目安です（直線距離×1.3と標高差から計算）。実際の時刻を入れると、その地点を基準に後ろを計算し直します。空欄に戻すと自動計算に戻ります。</p>
+    </section>
+
+    <section class="panel">
+      <h2>地図PDF</h2>
+      <div class="settings-grid">
+        <label>
+          用紙の向き
+          <select id="orientSelect">
+            <option value="auto" selected>自動（行程が1枚に収まる向き）</option>
+            <option value="landscape">A4 横</option>
+            <option value="portrait">A4 縦</option>
+          </select>
+        </label>
+        <label>
+          PDF画質
+          <select id="dpiSelect">
+            <option value="300">標準 300 dpi（A4印刷向け）</option>
+            <option value="400" selected>高精細 400 dpi（A3拡大コピー向け）</option>
+          </select>
+        </label>
+        <label class="check-row">
+          <input id="tableCheck" type="checkbox" checked />
+          行程表（地点・時刻）を地図の隅に入れる
+        </label>
+        <label class="check-row">
+          <input id="multiPage" type="checkbox" checked />
+          1枚に収まらない時は複数ページに分割
+        </label>
       </div>
 
       <details>
-        <summary>磁北線・PDF設定</summary>
+        <summary>磁北線の設定</summary>
         <div class="settings-grid">
           <label>
             磁北偏角
@@ -151,32 +190,22 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
             西偏（度）※東偏はマイナス
             <input id="manualDeclination" type="number" step="0.01" value="7.5" inputmode="decimal" />
           </label>
-          <label>
-            PDF画質
-            <select id="dpiSelect">
-              <option value="200">標準 200 dpi</option>
-              <option value="300" selected>高精細 300 dpi</option>
-            </select>
-          </label>
-          <label class="check-row">
-            <input id="multiPage" type="checkbox" checked />
-            長距離は複数ページに自動分割
-          </label>
         </div>
       </details>
 
+      <div id="layoutInfo" class="layout-info"></div>
       <button id="pdfBtn" class="primary" type="button" disabled>1:25,000 PDFを作成</button>
       <div id="progress" class="progress hidden" aria-live="polite">
         <div class="progress-track"><div id="progressBar"></div></div>
         <span id="progressText"></span>
       </div>
-      <p class="note">PDFはA4横・地図面277×190 mm。1 km磁北線の紙上間隔は40 mm。印刷時は「100% / 実際のサイズ」を使用。</p>
+      <p class="note">A4・余白10 mm・1:25,000。磁北線は1 km（紙上40 mm）間隔。登山路は描かないので手書きで記入してください。印刷は「100% / 実際のサイズ」。A3へは141%拡大コピー（縮尺は約1:17,700になります）。</p>
     </section>
   </main>
 
   <footer>
-    <span>背景地図：国土地理院「地理院タイル（標準地図）」</span>
-    <span>位置情報・山行地点は本アプリのサーバーへ保存しません。</span>
+    <span>背景地図・標高・地名検索：国土地理院（地理院タイル／標高API／地名検索）</span>
+    <span>行動計画は端末内だけに保存します。サーバーへは送りません。</span>
   </footer>
 
   <script>
@@ -184,51 +213,44 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
 
 const GSI_TILE = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/std/${z}/${x}/${y}.png`;
 const GSI_PLACE_SEARCH = 'https://msearch.gsi.go.jp/address-search/AddressSearch';
+const GSI_ELEVATION = (lat, lon) => `https://cyberjapandata2.gsi.go.jp/general/dem/scripts/getelevation.php?lon=${lon}&lat=${lat}&outtype=JSON`;
 const EARTH_R = 6371008.8;
 const WEBMERCATOR_MPP0 = 156543.03392804097;
-const A4_LANDSCAPE_MM = { w: 297, h: 210 };
-const MAP_MM = { w: 277, h: 190 };
-const MAP_MARGIN_MM = { x: 10, y: 10 };
+const PAPER_MM = { landscape: { w: 297, h: 210 }, portrait: { w: 210, h: 297 } };
+const MAP_MARGIN_MM = 10;
+const PANEL_MM = 17.5;          // 地図下部の情報帯（地図に重ねて描く）
 const SCALE_DENOM = 25000;
+const M_PER_MM = SCALE_DENOM / 1000;
 const TILE_SIZE = 256;
+const PDF_TILE_ZMAX = 16;       // z17は地図の文字が紙上で小さすぎるため16まで
+const LABEL_PAD_M = 600;        // 地点ラベル用に行程の外側へ取る余白
+const PAGE_OVERLAP_M = 1000;    // 複数ページ時の重なり
+const STORE_KEY = 'topo25000.plan.v1';
 
 const state = {
   center: { lat: 35.3606, lon: 138.7274 },
   zoom: 14,
-  mode: 'start',
-  start: null,
-  goal: null,
+  points: [],
+  nextId: 1,
   drag: null,
   renderToken: 0,
   tileCache: new Map(),
   tileCacheOrder: [],
 };
 
+const $ = id => document.getElementById(id);
 const els = {
-  canvas: document.getElementById('mapCanvas'),
-  hint: document.getElementById('mapHint'),
-  modeStart: document.getElementById('modeStart'),
-  modeGoal: document.getElementById('modeGoal'),
-  startText: document.getElementById('startText'),
-  goalText: document.getElementById('goalText'),
-  placeSearchInput: document.getElementById('placeSearchInput'),
-  placeSearchBtn: document.getElementById('placeSearchBtn'),
-  searchStatus: document.getElementById('searchStatus'),
-  searchResults: document.getElementById('searchResults'),
-  coordInput: document.getElementById('coordInput'),
-  applyCoordBtn: document.getElementById('applyCoordBtn'),
-  locateBtn: document.getElementById('locateBtn'),
-  zoomInBtn: document.getElementById('zoomInBtn'),
-  zoomOutBtn: document.getElementById('zoomOutBtn'),
-  declinationMode: document.getElementById('declinationMode'),
-  manualWrap: document.getElementById('manualDeclinationWrap'),
-  manualDeclination: document.getElementById('manualDeclination'),
-  dpiSelect: document.getElementById('dpiSelect'),
-  multiPage: document.getElementById('multiPage'),
-  pdfBtn: document.getElementById('pdfBtn'),
-  progress: document.getElementById('progress'),
-  progressBar: document.getElementById('progressBar'),
-  progressText: document.getElementById('progressText'),
+  canvas: $('mapCanvas'), hint: $('mapHint'),
+  tripDate: $('tripDate'), startTime: $('startTime'), paceSelect: $('paceSelect'),
+  placeSearchInput: $('placeSearchInput'), placeSearchBtn: $('placeSearchBtn'),
+  searchStatus: $('searchStatus'), searchResults: $('searchResults'),
+  coordInput: $('coordInput'), applyCoordBtn: $('applyCoordBtn'),
+  planList: $('planList'), planSummary: $('planSummary'),
+  locateBtn: $('locateBtn'), fitBtn: $('fitBtn'), zoomInBtn: $('zoomInBtn'), zoomOutBtn: $('zoomOutBtn'),
+  orientSelect: $('orientSelect'), dpiSelect: $('dpiSelect'), tableCheck: $('tableCheck'), multiPage: $('multiPage'),
+  declinationMode: $('declinationMode'), manualWrap: $('manualDeclinationWrap'), manualDeclination: $('manualDeclination'),
+  layoutInfo: $('layoutInfo'), pdfBtn: $('pdfBtn'),
+  progress: $('progress'), progressBar: $('progressBar'), progressText: $('progressText'),
 };
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -252,32 +274,13 @@ function unproject(x, y, z) {
   return { lat, lon };
 }
 
+function mercatorMpp(lat, z) { return WEBMERCATOR_MPP0 * Math.cos(rad(lat)) / (2 ** z); }
+
 function haversine(a, b) {
   const p1 = rad(a.lat), p2 = rad(b.lat);
   const dp = rad(b.lat - a.lat), dl = rad(b.lon - a.lon);
   const h = Math.sin(dp/2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) ** 2;
   return 2 * EARTH_R * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
-function bearing(a, b) {
-  const p1 = rad(a.lat), p2 = rad(b.lat), dl = rad(b.lon - a.lon);
-  const y = Math.sin(dl) * Math.cos(p2);
-  const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl);
-  return mod(deg(Math.atan2(y, x)), 360);
-}
-
-function destination(start, bearingDeg, distanceM) {
-  const d = distanceM / EARTH_R;
-  const br = rad(bearingDeg), p1 = rad(start.lat), l1 = rad(start.lon);
-  const p2 = Math.asin(Math.sin(p1) * Math.cos(d) + Math.cos(p1) * Math.sin(d) * Math.cos(br));
-  const l2 = l1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(p1), Math.cos(d) - Math.sin(p1) * Math.sin(p2));
-  return { lat: deg(p2), lon: mod(deg(l2) + 180, 360) - 180 };
-}
-
-function midpoint(a, b) {
-  const d = haversine(a, b);
-  if (d < 0.01) return { ...a };
-  return destination(a, bearing(a, b), d / 2);
 }
 
 function gsiDeclination2020(lat, lon) {
@@ -297,27 +300,6 @@ function formatDeclination(d) {
   return `${dd}°${mm.toFixed(1)}′${dir}`;
 }
 
-function formatCoord(p) {
-  return `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
-}
-
-function setMode(mode) {
-  state.mode = mode;
-  els.modeStart.classList.toggle('active', mode === 'start');
-  els.modeGoal.classList.toggle('active', mode === 'goal');
-  els.hint.textContent = mode === 'start' ? '地図をタップしてSTARTを設定' : '地図をタップしてGOALを設定';
-}
-
-function setPoint(mode, p, recenter = false) {
-  state[mode] = { lat: p.lat, lon: p.lon };
-  if (recenter) state.center = { ...p };
-  els.startText.textContent = state.start ? formatCoord(state.start) : '未設定';
-  els.goalText.textContent = state.goal ? formatCoord(state.goal) : '未設定';
-  els.pdfBtn.disabled = !(state.start && state.goal);
-  if (mode === 'start' && !state.goal) setMode('goal');
-  if (state.start && state.goal) fitPoints(); else renderPreview();
-}
-
 function parseCoordinate(text) {
   const m = text.trim().replace(/，/g, ',').match(/^\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
   if (!m) return null;
@@ -326,6 +308,271 @@ function parseCoordinate(text) {
   return { lat, lon };
 }
 
+/* ---------- 時刻・行動計画 ---------- */
+
+function parseHM(s) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s || '');
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+function fmtHM(min) {
+  if (min == null || !Number.isFinite(min)) return '';
+  const t = Math.round(min);
+  const day = Math.floor(t / 1440);
+  const r = mod(t, 1440);
+  const hm = `${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`;
+  return day > 0 ? `翌${hm}` : hm;
+}
+
+function fmtDuration(min) {
+  const t = Math.round(min);
+  return t >= 60 ? `${Math.floor(t / 60)}時間${t % 60}分` : `${t}分`;
+}
+
+// 標準的な目安：水平4 km/h（直線距離×1.3で道の曲がりを補正）、登り300 m/h、下り600 m/h を足し合わせる
+function estimateMoveMinutes(a, b) {
+  const km = haversine(a, b) * 1.3 / 1000;
+  const dh = (a.ele != null && b.ele != null) ? b.ele - a.ele : 0;
+  return km * 15 + Math.max(dh, 0) * 0.2 + Math.max(-dh, 0) * 0.1;
+}
+
+function computeSchedule() {
+  const pace = Number(els.paceSelect.value) || 1;
+  const start = parseHM(els.startTime.value) ?? 420;
+  const rows = [];
+  let prevDep = null;
+  state.points.forEach((p, i) => {
+    let move = 0, auto;
+    if (i === 0) auto = start;
+    else { move = Math.round(estimateMoveMinutes(state.points[i-1], p) * pace); auto = prevDep + move; }
+    const arr = p.fixed ?? auto;
+    const dep = arr + (Number(p.rest) || 0);
+    rows.push({ p, move, arr, dep });
+    prevDep = dep;
+  });
+  return rows;
+}
+
+// NOAA簡易式による日の出・日の入り（分、日本時間）
+function sunTimes(dateStr, lat, lon) {
+  const d = dateStr ? new Date(`${dateStr}T12:00:00+09:00`) : null;
+  if (!d || isNaN(d)) return null;
+  const start = Date.UTC(d.getUTCFullYear(), 0, 0);
+  const doy = Math.floor((d.getTime() - start) / 86400000);
+  const g = 2 * Math.PI / 365 * (doy - 1);
+  const eqt = 229.18 * (0.000075 + 0.001868*Math.cos(g) - 0.032077*Math.sin(g) - 0.014615*Math.cos(2*g) - 0.040849*Math.sin(2*g));
+  const decl = 0.006918 - 0.399912*Math.cos(g) + 0.070257*Math.sin(g) - 0.006758*Math.cos(2*g) + 0.000907*Math.sin(2*g) - 0.002697*Math.cos(3*g) + 0.00148*Math.sin(3*g);
+  const cosH = (Math.cos(rad(90.833)) - Math.sin(rad(lat))*Math.sin(decl)) / (Math.cos(rad(lat))*Math.cos(decl));
+  if (cosH < -1 || cosH > 1) return null;
+  const ha = deg(Math.acos(cosH));
+  const noon = 720 - 4*lon - eqt + 540;
+  return { rise: noon - 4*ha, set: noon + 4*ha };
+}
+
+/* ---------- 地点の追加・編集 ---------- */
+
+function addPoint(p, name) {
+  const idx = state.points.length;
+  const pt = {
+    id: state.nextId++,
+    name: name || (idx === 0 ? '登山口' : `地点${idx + 1}`),
+    lat: p.lat, lon: p.lon, ele: null, rest: idx === 0 ? 0 : 5, fixed: null,
+  };
+  state.points.push(pt);
+  fetchElevation(pt);
+  planChanged(true);
+}
+
+async function fetchElevation(pt) {
+  try {
+    const res = await fetch(GSI_ELEVATION(pt.lat.toFixed(6), pt.lon.toFixed(6)), { mode: 'cors' });
+    const data = await res.json();
+    const e = Number(data?.elevation);
+    if (Number.isFinite(e)) { pt.ele = Math.round(e); planChanged(true); }
+  } catch (err) {
+    console.warn('標高取得に失敗', err);
+  }
+}
+
+function movePoint(i, d) {
+  const j = i + d;
+  if (j < 0 || j >= state.points.length) return;
+  [state.points[i], state.points[j]] = [state.points[j], state.points[i]];
+  planChanged(true);
+}
+
+function removePoint(i) {
+  state.points.splice(i, 1);
+  planChanged(true);
+}
+
+function planChanged(rebuildList) {
+  if (rebuildList) renderPlanList(); else refreshPlanTimes();
+  renderSummary();
+  renderRecordLinks();
+  updateLayoutInfo();
+  els.pdfBtn.disabled = state.points.length === 0;
+  saveState();
+  renderPreview();
+}
+
+function el(tag, props = {}, children = []) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') e.className = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else e[k] = v;
+  }
+  for (const c of [].concat(children)) e.append(c);
+  return e;
+}
+
+function renderPlanList() {
+  els.planList.innerHTML = '';
+  if (!state.points.length) {
+    els.planList.append(el('div', { class: 'plan-empty', textContent: '地点がまだありません。地図をタップするか地名検索で追加してください。' }));
+    return;
+  }
+  const sched = computeSchedule();
+  state.points.forEach((p, i) => {
+    const s = sched[i];
+    const nameIn = el('input', { value: p.name, 'ariaLabel': '地点名', oninput: e => { p.name = e.target.value; saveState(); renderPreview(); renderRecordLinks(); } });
+    const timeIn = el('input', { type: 'time', value: fmtHM(s.arr).replace('翌', ''), className: p.fixed != null ? 'fixed' : '', onchange: e => {
+      const v = parseHM(e.target.value);
+      p.fixed = v;
+      if (i === 0 && v != null) { els.startTime.value = e.target.value; p.fixed = null; }
+      planChanged(true);
+    } });
+    timeIn.dataset.role = 'arr';
+    const restIn = el('input', { type: 'number', min: 0, step: 5, value: p.rest, inputMode: 'numeric', onchange: e => { p.rest = Math.max(0, Number(e.target.value) || 0); planChanged(false); } });
+    const eleIn = el('input', { type: 'number', step: 1, value: p.ele ?? '', placeholder: '取得中', inputMode: 'numeric', onchange: e => { const v = e.target.value === '' ? null : Number(e.target.value); p.ele = Number.isFinite(v) ? v : null; planChanged(false); } });
+    const info = el('div', { class: 'info' });
+    info.dataset.role = 'info';
+    info.textContent = infoText(s, i);
+    const row = el('div', { class: 'plan-row' }, [
+      el('div', { class: 'r1' }, [
+        el('span', { class: `badge${i === 0 ? ' first' : ''}`, textContent: String(i + 1) }),
+        nameIn,
+        el('button', { type: 'button', textContent: '↑', ariaLabel: '上へ', disabled: i === 0, onclick: () => movePoint(i, -1) }),
+        el('button', { type: 'button', textContent: '↓', ariaLabel: '下へ', disabled: i === state.points.length - 1, onclick: () => movePoint(i, 1) }),
+        el('button', { type: 'button', textContent: '✕', ariaLabel: '削除', onclick: () => removePoint(i) }),
+      ]),
+      el('div', { class: 'r2' }, [
+        el('label', {}, [i === 0 ? '出発' : '到着', timeIn]),
+        el('label', {}, ['休憩(分)', restIn]),
+        el('label', {}, ['標高(m)', eleIn]),
+      ]),
+      info,
+    ]);
+    els.planList.append(row);
+  });
+}
+
+function infoText(s, i) {
+  const parts = [];
+  if (i > 0) parts.push(`前の地点から約${fmtDuration(s.move)}`);
+  if (s.p.fixed != null) parts.push('時刻を手入力');
+  parts.push(`発 ${fmtHM(s.dep)}`);
+  return parts.join(' ・ ');
+}
+
+function refreshPlanTimes() {
+  const sched = computeSchedule();
+  const rows = els.planList.querySelectorAll('.plan-row');
+  rows.forEach((row, i) => {
+    const s = sched[i]; if (!s) return;
+    const t = row.querySelector('[data-role=arr]');
+    if (t && document.activeElement !== t) t.value = fmtHM(s.arr).replace('翌', '');
+    row.querySelector('[data-role=info]').textContent = infoText(s, i);
+  });
+}
+
+function renderSummary() {
+  const sched = computeSchedule();
+  if (!sched.length) { els.planSummary.innerHTML = ''; return; }
+  const first = sched[0], last = sched[sched.length - 1];
+  const lines = [];
+  const eles = state.points.map(p => p.ele).filter(e => e != null);
+  let up = 0, down = 0;
+  for (let i = 1; i < state.points.length; i++) {
+    const a = state.points[i-1].ele, b = state.points[i].ele;
+    if (a != null && b != null) { up += Math.max(b - a, 0); down += Math.max(a - b, 0); }
+  }
+  lines.push(`行動 ${fmtHM(first.arr)} → ${fmtHM(last.arr)}（${fmtDuration(last.arr - first.arr)}）`);
+  if (eles.length) lines.push(`最高 ${Math.max(...eles)} m ・ 登り計 ${up} m ・ 下り計 ${down} m（地点間の差の合計）`);
+  const sun = sunTimes(els.tripDate.value, state.points[0].lat, state.points[0].lon);
+  let warn = '';
+  if (sun) {
+    lines.push(`日の出 ${fmtHM(sun.rise)} ・ 日の入り ${fmtHM(sun.set)}`);
+    if (last.arr > sun.set - 30) warn = '⚠ 最後の地点が日の入り30分前より遅いです。行程を見直してください。';
+  }
+  els.planSummary.innerHTML = '';
+  for (const l of lines) els.planSummary.append(el('div', { textContent: l }));
+  if (warn) els.planSummary.append(el('div', { class: 'warn', textContent: warn }));
+}
+
+/* ---------- 似た山行記録（YAMAP・ヤマレコ）---------- */
+
+// 公式APIが無く自動取得は規約上避けるため、地点名で検索したページへのリンクを出す
+function recordKeywords() {
+  const names = state.points.map(p => p.name.trim()).filter(n => n && !/^(地点\d+|登山口)$/.test(n));
+  const peaks = names.filter(n => /山|岳|峰|嶺|頭|ピーク/.test(n));
+  const others = names.filter(n => !peaks.includes(n));
+  return [...new Set([...peaks.slice(0, 2), ...others.slice(0, 1)])];
+}
+
+function renderRecordLinks() {
+  const box = document.getElementById('recordLinks');
+  box.innerHTML = '';
+  const kw = recordKeywords();
+  if (!kw.length) return;
+  const q = kw.join(' ');
+  const g = (site, period) => `https://www.google.com/search?q=${encodeURIComponent(`site:${site} ${q}`)}&tbs=qdr:${period}`;
+  const link = (text, href) => el('a', { href, textContent: text, target: '_blank', rel: 'noopener' });
+  box.append(
+    el('div', { textContent: `似た行程の最新記録（キーワード：${q}）` }),
+    el('div', { class: 'links' }, [
+      link('YAMAP 直近1か月', g('yamap.com/activities', 'm')),
+      link('YAMAP 直近1年', g('yamap.com/activities', 'y')),
+      link('ヤマレコ 直近1か月', g('yamareco.com/modules/yamareco/detail-', 'm')),
+      link('ヤマレコ 直近1年', g('yamareco.com/modules/yamareco/detail-', 'y')),
+    ]),
+  );
+}
+
+/* ---------- 保存 ---------- */
+
+function saveState() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      date: els.tripDate.value, start: els.startTime.value, pace: els.paceSelect.value,
+      orient: els.orientSelect.value, dpi: els.dpiSelect.value, table: els.tableCheck.checked,
+      points: state.points.map(({ name, lat, lon, ele, rest, fixed }) => ({ name, lat, lon, ele, rest, fixed })),
+      center: state.center, zoom: state.zoom,
+    }));
+  } catch {}
+}
+
+function loadState() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch {}
+  if (!s) return;
+  if (s.date) els.tripDate.value = s.date;
+  if (s.start) els.startTime.value = s.start;
+  if (s.pace) els.paceSelect.value = s.pace;
+  if (s.orient) els.orientSelect.value = s.orient;
+  if (s.dpi) els.dpiSelect.value = s.dpi;
+  if (typeof s.table === 'boolean') els.tableCheck.checked = s.table;
+  if (Array.isArray(s.points)) {
+    state.points = s.points.filter(p => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
+      .map(p => ({ id: state.nextId++, name: String(p.name ?? ''), lat: p.lat, lon: p.lon, ele: Number.isFinite(p.ele) ? p.ele : null, rest: Number(p.rest) || 0, fixed: Number.isFinite(p.fixed) ? p.fixed : null }));
+  }
+  if (s.center && Number.isFinite(s.center.lat)) state.center = s.center;
+  if (Number.isFinite(s.zoom)) state.zoom = s.zoom;
+}
+
+/* ---------- 地名検索 ---------- */
+
 async function searchPlace() {
   const q = els.placeSearchInput.value.trim();
   if (!q) {
@@ -333,53 +580,34 @@ async function searchPlace() {
     els.searchResults.classList.add('hidden');
     return;
   }
-
   els.placeSearchBtn.disabled = true;
   els.placeSearchBtn.textContent = '検索中';
   els.searchStatus.textContent = `「${q}」を検索中…`;
   els.searchResults.innerHTML = '';
   els.searchResults.classList.add('hidden');
-
   try {
-    const url = `${GSI_PLACE_SEARCH}?q=${encodeURIComponent(q)}`;
-    const res = await fetch(url, { mode: 'cors', cache: 'no-store' });
+    const res = await fetch(`${GSI_PLACE_SEARCH}?q=${encodeURIComponent(q)}`, { mode: 'cors', cache: 'no-store' });
     if (!res.ok) throw new Error(`検索サーバー応答 ${res.status}`);
     const data = await res.json();
-    if (!Array.isArray(data) || data.length === 0) {
-      els.searchStatus.textContent = '候補が見つかりませんでした。市町村名などを加えて再検索してください。';
-      return;
-    }
-
-    const valid = data.filter(item => {
+    const valid = (Array.isArray(data) ? data : []).filter(item => {
       const c = item?.geometry?.coordinates;
       return Array.isArray(c) && c.length >= 2 && Number.isFinite(Number(c[0])) && Number.isFinite(Number(c[1]));
     }).slice(0, 12);
-
     if (!valid.length) {
-      els.searchStatus.textContent = '位置情報を持つ候補が見つかりませんでした。';
+      els.searchStatus.textContent = '候補が見つかりませんでした。市町村名などを加えて再検索してください。';
       return;
     }
-
-    els.searchStatus.textContent = `${valid.length}件表示。候補をクリックすると${state.mode === 'start' ? 'START' : 'GOAL'}に設定します。`;
+    els.searchStatus.textContent = `${valid.length}件。候補をタップすると地点${state.points.length + 1}として追加します。`;
     for (const item of valid) {
       const [lon, lat] = item.geometry.coordinates.map(Number);
       const title = item?.properties?.title || q;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'search-result';
-      const strong = document.createElement('strong');
-      strong.textContent = title;
-      const small = document.createElement('small');
-      small.textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-      btn.append(strong, small);
-      btn.addEventListener('click', () => {
-        const targetMode = state.mode;
-        state.zoom = Math.max(state.zoom, 15);
-        setPoint(targetMode, { lat, lon }, true);
-        els.searchStatus.textContent = `${title} → ${targetMode === 'start' ? 'START' : 'GOAL'}に設定しました。`;
+      els.searchResults.append(el('button', { type: 'button', class: 'search-result', onclick: () => {
+        state.zoom = Math.max(state.zoom, 14);
+        state.center = { lat, lon };
+        addPoint({ lat, lon }, title.replace(/^.*?[都道府県].*?[市町村区郡]/, '') || title);
+        els.searchStatus.textContent = `${title} を追加しました。`;
         els.searchResults.classList.add('hidden');
-      });
-      els.searchResults.appendChild(btn);
+      } }, [el('strong', { textContent: title }), el('small', { textContent: `${lat.toFixed(5)}, ${lon.toFixed(5)}` })]));
     }
     els.searchResults.classList.remove('hidden');
   } catch (err) {
@@ -390,6 +618,67 @@ async function searchPlace() {
     els.placeSearchBtn.textContent = '検索';
   }
 }
+
+/* ---------- 用紙レイアウト（向き自動・ページ分割） ---------- */
+
+function mapMM(orient) {
+  const p = PAPER_MM[orient];
+  return { w: p.w - 2 * MAP_MARGIN_MM, h: p.h - 2 * MAP_MARGIN_MM };
+}
+
+function computeLayout() {
+  const pts = state.points;
+  if (!pts.length) return null;
+  const zRef = 20;
+  const px = pts.map(p => project(p.lat, p.lon, zRef));
+  const minX = Math.min(...px.map(q => q.x)), maxX = Math.max(...px.map(q => q.x));
+  const minY = Math.min(...px.map(q => q.y)), maxY = Math.max(...px.map(q => q.y));
+  const mid = unproject((minX + maxX) / 2, (minY + maxY) / 2, zRef);
+  const mpp = mercatorMpp(mid.lat, zRef);
+  const bw = (maxX - minX) * mpp + 2 * LABEL_PAD_M;
+  const bh = (maxY - minY) * mpp + 2 * LABEL_PAD_M;
+  const allowMulti = els.multiPage.checked;
+  const pref = els.orientSelect.value;
+  const cands = pref === 'auto' ? ['landscape', 'portrait'] : [pref];
+
+  let best = null;
+  for (const orient of cands) {
+    const m = mapMM(orient);
+    const gw = m.w * M_PER_MM, gh = (m.h - PANEL_MM) * M_PER_MM; // 情報帯を除いた使える範囲（m）
+    const need = (b, g) => b <= g ? 1 : Math.ceil((b - PAGE_OVERLAP_M) / (g - PAGE_OVERLAP_M));
+    const cols = allowMulti ? need(bw, gw) : 1;
+    const rows = allowMulti ? need(bh, gh) : 1;
+    const slack = Math.min(gw / bw, gh / bh);
+    const cand = { orient, cols, rows, count: cols * rows, slack, gw, gh, m, fits: bw <= gw && bh <= gh };
+    if (!best || cand.count < best.count || (cand.count === best.count && cand.slack > best.slack)) best = cand;
+  }
+
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const stepX = (best.gw - PAGE_OVERLAP_M) / mpp, stepY = (best.gh - PAGE_OVERLAP_M) / mpp;
+  const panelShift = (PANEL_MM * M_PER_MM / 2) / mpp; // 情報帯の分だけ地図中心を南へずらす
+  const pages = [];
+  for (let r = 0; r < best.rows; r++) {
+    for (let c = 0; c < best.cols; c++) {
+      const x = cx + (c - (best.cols - 1) / 2) * stepX;
+      const y = cy + (r - (best.rows - 1) / 2) * stepY + panelShift;
+      pages.push({ center: unproject(x, y, zRef) });
+    }
+  }
+  return { orient: best.orient, mapMM: best.m, pages, fits: best.fits, cols: best.cols, rows: best.rows };
+}
+
+function updateLayoutInfo() {
+  const lay = computeLayout();
+  if (!lay) { els.layoutInfo.textContent = ''; return; }
+  const o = lay.orient === 'landscape' ? 'A4横' : 'A4縦';
+  if (lay.pages.length === 1) {
+    els.layoutInfo.textContent = lay.fits ? `→ ${o} 1枚に収まります` : `→ ${o} 1枚（はみ出す地点があります）`;
+  } else {
+    els.layoutInfo.textContent = `→ ${o} ${lay.pages.length}枚（${lay.cols}列×${lay.rows}段、1 km重ね）`;
+  }
+}
+
+/* ---------- プレビュー地図 ---------- */
 
 function canvasPointToLatLon(clientX, clientY) {
   const rect = els.canvas.getBoundingClientRect();
@@ -417,6 +706,27 @@ async function loadBitmap(url, memory = true) {
   return bmp;
 }
 
+function drawPointMarker(ctx, x, y, r, label, first) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = first ? '#b52323' : '#1d4f9b'; ctx.fill();
+  ctx.lineWidth = r * .22; ctx.strokeStyle = '#fff'; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = `700 ${r * (label.length > 1 ? 1.0 : 1.2)}px -apple-system,sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, x, y + r * .05);
+  ctx.restore();
+}
+
+function drawPointLabel(ctx, x, y, r, text, fontPx) {
+  ctx.save();
+  ctx.font = `700 ${fontPx}px -apple-system,"Hiragino Sans",sans-serif`;
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = fontPx * .28; ctx.strokeStyle = 'rgba(255,255,255,.95)';
+  ctx.strokeText(text, x + r * 1.35, y);
+  ctx.fillStyle = '#10204a';
+  ctx.fillText(text, x + r * 1.35, y);
+  ctx.restore();
+}
+
 async function renderPreview() {
   const token = ++state.renderToken;
   const rect = els.canvas.getBoundingClientRect();
@@ -428,11 +738,7 @@ async function renderPreview() {
     els.canvas.width = pixelW;
     els.canvas.height = pixelH;
   }
-  const ctx = els.canvas.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const w = rect.width, h = rect.height;
-  ctx.fillStyle = '#dfe5df'; ctx.fillRect(0, 0, w, h);
-
   const z = state.zoom;
   const n = 2 ** z;
   const centerPx = project(state.center.lat, state.center.lon, z);
@@ -442,97 +748,80 @@ async function renderPreview() {
   const jobs = [];
   for (let ty = y0; ty <= y1; ty++) {
     for (let tx = x0; tx <= x1; tx++) {
-      const wrappedX = mod(tx, n);
-      const url = GSI_TILE(z, wrappedX, ty);
-      jobs.push(loadBitmap(url, true).then(bmp => ({ bmp, tx, ty })).catch(() => null));
+      jobs.push(loadBitmap(GSI_TILE(z, mod(tx, n), ty), true).then(bmp => ({ bmp, tx, ty })).catch(() => null));
     }
   }
   const tiles = await Promise.all(jobs);
   if (token !== state.renderToken) return;
+  const ctx = els.canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#dfe5df'; ctx.fillRect(0, 0, w, h);
   for (const t of tiles) {
-    if (!t) continue;
-    ctx.drawImage(t.bmp, t.tx * TILE_SIZE - left, t.ty * TILE_SIZE - top, TILE_SIZE, TILE_SIZE);
+    if (t) ctx.drawImage(t.bmp, t.tx * TILE_SIZE - left, t.ty * TILE_SIZE - top, TILE_SIZE, TILE_SIZE);
   }
 
-  function drawMarker(p, color, label) {
-    if (!p) return;
+  const toScreen = p => {
     const q = project(p.lat, p.lon, z);
-    let dx = q.x - centerPx.x;
-    const world = n * TILE_SIZE;
-    if (dx > world/2) dx -= world;
-    if (dx < -world/2) dx += world;
-    const x = w/2 + dx, y = h/2 + (q.y - centerPx.y);
+    return { x: q.x - left, y: q.y - top };
+  };
+
+  // 印刷範囲の枠
+  const lay = computeLayout();
+  if (lay) {
     ctx.save();
-    ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
-    ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
-    ctx.fillStyle = '#fff'; ctx.font = '700 11px -apple-system,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, x, y + .5);
+    ctx.strokeStyle = 'rgba(160,20,20,.85)'; ctx.lineWidth = 2; ctx.setLineDash([8, 5]);
+    lay.pages.forEach((pg, i) => {
+      const c = toScreen(pg.center);
+      const mpp = mercatorMpp(pg.center.lat, z);
+      const hw = lay.mapMM.w * M_PER_MM / 2 / mpp, hh = lay.mapMM.h * M_PER_MM / 2 / mpp;
+      ctx.strokeRect(c.x - hw, c.y - hh, hw * 2, hh * 2);
+      if (lay.pages.length > 1) {
+        ctx.fillStyle = 'rgba(160,20,20,.9)'; ctx.font = '700 12px -apple-system,sans-serif';
+        ctx.fillText(`P${i + 1}`, c.x - hw + 4, c.y - hh + 14);
+      }
+    });
     ctx.restore();
-    return { x, y };
   }
-  const s = drawMarker(state.start, '#bf2b2b', 'S');
-  const g = drawMarker(state.goal, '#2458a8', 'G');
-  if (s && g) {
-    ctx.save(); ctx.strokeStyle = '#172019'; ctx.lineWidth = 2; ctx.setLineDash([7,5]);
-    ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.lineTo(g.x,g.y); ctx.stroke(); ctx.restore();
-  }
+
+  const sched = computeSchedule();
+  sched.forEach((s, i) => {
+    const q = toScreen(s.p);
+    drawPointMarker(ctx, q.x, q.y, 10, String(i + 1), i === 0);
+    if (z >= 13) drawPointLabel(ctx, q.x, q.y, 10, `${s.p.name} ${fmtHM(s.arr)}`, 12);
+  });
 }
 
 function fitPoints() {
-  if (!state.start || !state.goal) return;
-  state.center = midpoint(state.start, state.goal);
-  for (let z = 17; z >= 10; z--) {
-    const rect = els.canvas.getBoundingClientRect();
-    const a = project(state.start.lat, state.start.lon, z);
-    const b = project(state.goal.lat, state.goal.lon, z);
-    let dx = Math.abs(a.x-b.x);
-    const world = TILE_SIZE * 2**z;
-    dx = Math.min(dx, world-dx);
-    const dy = Math.abs(a.y-b.y);
-    if (dx < rect.width*.7 && dy < rect.height*.65) { state.zoom = z; break; }
+  const lay = computeLayout();
+  if (!lay) return;
+  const rect = els.canvas.getBoundingClientRect();
+  const lats = lay.pages.map(p => p.center.lat);
+  const c = project(lats.reduce((a, b) => a + b, 0) / lats.length, lay.pages.reduce((a, p) => a + p.center.lon, 0) / lay.pages.length, 20);
+  state.center = unproject(c.x, c.y, 20);
+  const needW = lay.mapMM.w * M_PER_MM * lay.cols, needH = lay.mapMM.h * M_PER_MM * lay.rows;
+  for (let z = 17; z >= 8; z--) {
+    const mpp = mercatorMpp(state.center.lat, z);
+    if (needW / mpp < rect.width * .95 && needH / mpp < rect.height * .95) { state.zoom = z; break; }
   }
   renderPreview();
 }
 
-function choosePdfCenters(start, goal, allowMulti) {
-  const mid = midpoint(start, goal);
-  const groundW = MAP_MM.w * (SCALE_DENOM / 1000); // mm * 25 m/mm = 6925 m
-  const groundH = MAP_MM.h * (SCALE_DENOM / 1000); // 4750 m
-  const midLat = rad(mid.lat);
-  const dx = rad(goal.lon - start.lon) * EARTH_R * Math.cos(midLat);
-  const dy = rad(goal.lat - start.lat) * EARTH_R;
-  const margin = 500;
-  if (!allowMulti || (Math.abs(dx) <= groundW - 2*margin && Math.abs(dy) <= groundH - 2*margin)) return [mid];
-
-  const dist = haversine(start, goal);
-  const br = bearing(start, goal);
-  const pages = clamp(Math.ceil(dist / 3500), 1, 12);
-  const centers = [];
-  for (let i = 0; i < pages; i++) {
-    const d = dist * ((i + 0.5) / pages);
-    centers.push(destination(start, br, d));
-  }
-  return centers;
-}
+/* ---------- PDF ---------- */
 
 function chooseTileZoom(lat, dpi) {
-  const targetGroundMpp = (25.4 / dpi) * (SCALE_DENOM / 1000); // mm/px * m/mm
+  const targetGroundMpp = (25.4 / dpi) * M_PER_MM;
   const z = Math.ceil(Math.log2(WEBMERCATOR_MPP0 * Math.cos(rad(lat)) / targetGroundMpp));
-  return clamp(z, 13, 17);
+  return clamp(z, 13, PDF_TILE_ZMAX);
 }
 
-function pageGeo(center, z, outW, outH) {
-  const groundW = MAP_MM.w * (SCALE_DENOM / 1000);
-  const groundH = MAP_MM.h * (SCALE_DENOM / 1000);
-  const mpp = WEBMERCATOR_MPP0 * Math.cos(rad(center.lat)) / (2 ** z);
+function pageGeo(center, z, outW, outH, mm) {
+  const groundW = mm.w * M_PER_MM;
+  const groundH = mm.h * M_PER_MM;
+  const mpp = mercatorMpp(center.lat, z);
   const srcW = groundW / mpp;
   const srcH = groundH / mpp;
   const cp = project(center.lat, center.lon, z);
-  return {
-    z, groundW, groundH, srcW, srcH,
-    left: cp.x - srcW/2,
-    top: cp.y - srcH/2,
-    outW, outH,
-  };
+  return { z, groundW, groundH, srcW, srcH, left: cp.x - srcW/2, top: cp.y - srcH/2, outW, outH };
 }
 
 function pointToOutput(p, geo) {
@@ -541,10 +830,7 @@ function pointToOutput(p, geo) {
   const world = TILE_SIZE * 2**geo.z;
   while (x - geo.left > world/2) x -= world;
   while (x - geo.left < -world/2) x += world;
-  return {
-    x: (x - geo.left) / geo.srcW * geo.outW,
-    y: (q.y - geo.top) / geo.srcH * geo.outH,
-  };
+  return { x: (x - geo.left) / geo.srcW * geo.outW, y: (q.y - geo.top) / geo.srcH * geo.outH };
 }
 
 async function drawTilesForPdf(ctx, geo, onProgress) {
@@ -554,14 +840,13 @@ async function drawTilesForPdf(ctx, geo, onProgress) {
   const y0 = Math.max(0, Math.floor(geo.top / TILE_SIZE)), y1 = Math.min(n-1, Math.floor((bottom - 1e-6) / TILE_SIZE));
   const jobs = [];
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) jobs.push({tx,ty});
-
-  let done = 0;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  let done = 0, failed = 0;
   for (let i = 0; i < jobs.length; i += 8) {
     const batch = jobs.slice(i, i+8);
     const loaded = await Promise.all(batch.map(async job => {
-      const wx = mod(job.tx, n);
-      const url = GSI_TILE(geo.z, wx, job.ty);
-      try { return { ...job, bmp: await loadBitmap(url, false) }; }
+      try { return { ...job, bmp: await loadBitmap(GSI_TILE(geo.z, mod(job.tx, n), job.ty), false) }; }
       catch { return { ...job, bmp: null }; }
     }));
     for (const t of loaded) {
@@ -572,12 +857,13 @@ async function drawTilesForPdf(ctx, geo, onProgress) {
         const dh = TILE_SIZE / geo.srcH * geo.outH;
         ctx.drawImage(t.bmp, dx, dy, dw+.7, dh+.7);
         if (typeof t.bmp.close === 'function') t.bmp.close();
-      }
+      } else failed++;
       done++;
       onProgress?.(done / jobs.length);
     }
     await new Promise(r => setTimeout(r, 0));
   }
+  if (failed === jobs.length) throw new Error('地図タイルを1枚も取得できませんでした。');
 }
 
 function drawMagneticLines(ctx, w, h, declinationDeg, groundW) {
@@ -590,7 +876,6 @@ function drawMagneticLines(ctx, w, h, declinationDeg, groundW) {
   const cornerMax = Math.hypot(w,h) * 1.5;
   const kMin = Math.floor((-cornerMax - c0) / spacing) - 2;
   const kMax = Math.ceil((cornerMax - c0) / spacing) + 2;
-
   ctx.save();
   ctx.strokeStyle = 'rgba(178, 28, 28, 0.72)';
   ctx.lineWidth = Math.max(1.4, w * 0.00072);
@@ -606,76 +891,119 @@ function drawMagneticLines(ctx, w, h, declinationDeg, groundW) {
   ctx.restore();
 }
 
-function drawMarkerPdf(ctx, p, color, label, radius) {
+// 行程表を、地点が最も少ない隅に置く
+function drawPlanTable(ctx, geo, sched, dpi, panelH, avoid) {
+  const mm = v => v * dpi / 25.4;
+  const w = geo.outW, h = geo.outH;
+  const font = mm(2.3), rowH = mm(3.6), pad = mm(1.6);
+  const maxRows = Math.max(3, Math.floor((h - panelH - mm(40)) / rowH) - 2);
+  const rows = sched.slice(0, maxRows);
   ctx.save();
-  ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
-  ctx.lineWidth = radius*.22; ctx.strokeStyle = '#fff'; ctx.stroke();
-  ctx.fillStyle = '#fff'; ctx.font = `700 ${radius*1.12}px -apple-system,sans-serif`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, p.x, p.y + radius*.04);
+  ctx.font = `${font}px -apple-system,"Hiragino Sans",sans-serif`;
+  const nameW = Math.min(mm(34), Math.max(mm(12), ...rows.map(s => ctx.measureText(s.p.name).width)));
+  const colNo = mm(5), colT = mm(9.5), colE = mm(9);
+  const tw = pad * 2 + colNo + nameW + mm(1.5) + colT * 2 + colE;
+  const extra = sched.length > rows.length ? 1 : 0;
+  const th = pad * 2 + rowH * (rows.length + 2 + extra);
+  const gap = mm(3);
+  const corners = [
+    { x: gap, y: gap },
+    { x: gap, y: h - panelH - th - gap },
+    { x: w - tw - gap, y: h - panelH - th - gap },
+    { x: w - tw - gap, y: mm(28) },
+  ];
+  const score = c => avoid.filter(p => p.x > c.x - mm(6) && p.x < c.x + tw + mm(6) && p.y > c.y - mm(6) && p.y < c.y + th + mm(6)).length;
+  const box = corners.reduce((b, c) => score(c) < score(b) ? c : b, corners[0]);
+
+  ctx.fillStyle = 'rgba(255,255,255,.92)'; ctx.fillRect(box.x, box.y, tw, th);
+  ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1, mm(.15)); ctx.strokeRect(box.x, box.y, tw, th);
+  ctx.fillStyle = '#111'; ctx.textBaseline = 'middle';
+  let y = box.y + pad + rowH / 2;
+  const dateStr = els.tripDate.value ? els.tripDate.value.replace(/-/g, '/') : '';
+  ctx.font = `700 ${font}px -apple-system,"Hiragino Sans",sans-serif`;
+  ctx.fillText(`行動計画 ${dateStr}`, box.x + pad, y);
+  y += rowH;
+  const xNo = box.x + pad, xName = xNo + colNo, xArr = xName + nameW + mm(1.5), xDep = xArr + colT, xEle = xDep + colT;
+  ctx.fillText('No', xNo, y); ctx.fillText('地点', xName, y); ctx.fillText('着', xArr, y); ctx.fillText('発', xDep, y); ctx.fillText('標高', xEle, y);
+  ctx.font = `${font}px -apple-system,"Hiragino Sans",sans-serif`;
+  rows.forEach((s, i) => {
+    y += rowH;
+    ctx.fillText(String(i + 1), xNo, y);
+    let name = s.p.name;
+    while (name.length > 1 && ctx.measureText(name).width > nameW) name = name.slice(0, -1);
+    ctx.fillText(name, xName, y);
+    ctx.fillText(i === 0 ? '' : fmtHM(s.arr), xArr, y);
+    ctx.fillText(fmtHM(s.dep), xDep, y);
+    ctx.fillText(s.p.ele != null ? String(s.p.ele) : '', xEle, y);
+  });
+  if (extra) { y += rowH; ctx.fillText(`…ほか${sched.length - rows.length}地点`, xName, y); }
   ctx.restore();
 }
 
-function drawPdfOverlay(ctx, geo, center, pageNo, pageCount, declination, start, goal, dpi) {
+function drawPdfOverlay(ctx, geo, center, pageNo, pageCount, declination, sched, dpi, withTable) {
   const w = geo.outW, h = geo.outH;
+  const mm = v => v * dpi / 25.4;
   drawMagneticLines(ctx, w, h, declination, geo.groundW);
 
-  const sp = pointToOutput(start, geo), gp = pointToOutput(goal, geo);
-  ctx.save();
-  ctx.strokeStyle = 'rgba(20,20,20,.86)';
-  ctx.lineWidth = Math.max(2.2, dpi * .28 / 25.4);
-  ctx.setLineDash([dpi*.8/25.4, dpi*.55/25.4]);
-  ctx.beginPath(); ctx.moveTo(sp.x,sp.y); ctx.lineTo(gp.x,gp.y); ctx.stroke();
-  ctx.restore();
-
-  const r = Math.max(11, dpi*1.4/25.4);
-  if (sp.x > -r && sp.x < w+r && sp.y > -r && sp.y < h+r) drawMarkerPdf(ctx, sp, '#b52323', 'S', r);
-  if (gp.x > -r && gp.x < w+r && gp.y > -r && gp.y < h+r) drawMarkerPdf(ctx, gp, '#1d4f9b', 'G', r);
+  const r = mm(1.7);
+  const pts = sched.map(s => pointToOutput(s.p, geo));
+  sched.forEach((s, i) => {
+    const q = pts[i];
+    if (q.x < -r || q.x > w + r || q.y < -r || q.y > h + r) return;
+    drawPointMarker(ctx, q.x, q.y, r, String(i + 1), i === 0);
+    drawPointLabel(ctx, q.x, q.y, r, `${s.p.name} ${fmtHM(s.arr)}`, mm(2.4));
+  });
 
   // border
   ctx.save();
-  ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1.2, dpi*.15/25.4); ctx.strokeRect(1,1,w-2,h-2);
+  ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1.2, mm(.15)); ctx.strokeRect(1,1,w-2,h-2);
   ctx.restore();
 
   // north / magnetic north mini indicator
-  const boxX = w - dpi*31/25.4, boxY = dpi*8/25.4;
-  const arrowLen = dpi*15/25.4;
-  const font = Math.max(15, dpi*2.25/25.4);
+  const boxX = w - mm(16), boxY = mm(9);
+  const arrowLen = mm(14);
+  const font = Math.max(15, mm(2.25));
   ctx.save();
-  ctx.fillStyle = 'rgba(255,255,255,.88)'; ctx.fillRect(boxX-dpi*5/25.4, boxY-dpi*4/25.4, dpi*32/25.4, dpi*25/25.4);
-  ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1.5, dpi*.2/25.4);
+  ctx.fillStyle = 'rgba(255,255,255,.88)'; ctx.fillRect(boxX - mm(11), boxY - mm(5), mm(22), mm(21));
+  ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1.5, mm(.2));
   ctx.beginPath(); ctx.moveTo(boxX, boxY+arrowLen); ctx.lineTo(boxX, boxY); ctx.stroke();
-  ctx.fillStyle = '#111'; ctx.beginPath(); ctx.moveTo(boxX, boxY); ctx.lineTo(boxX-dpi*1.2/25.4, boxY+dpi*2.2/25.4); ctx.lineTo(boxX+dpi*1.2/25.4, boxY+dpi*2.2/25.4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#111'; ctx.beginPath(); ctx.moveTo(boxX, boxY); ctx.lineTo(boxX-mm(1.2), boxY+mm(2.2)); ctx.lineTo(boxX+mm(1.2), boxY+mm(2.2)); ctx.closePath(); ctx.fill();
   const d = rad(declination), mx = boxX - Math.sin(d)*arrowLen, my = boxY+arrowLen - Math.cos(d)*arrowLen;
   ctx.strokeStyle = '#b21c1c'; ctx.beginPath(); ctx.moveTo(boxX, boxY+arrowLen); ctx.lineTo(mx,my); ctx.stroke();
-  ctx.fillStyle = '#111'; ctx.font = `700 ${font}px -apple-system,sans-serif`; ctx.fillText('N', boxX-dpi*1.6/25.4, boxY-dpi*.6/25.4);
-  ctx.fillStyle = '#b21c1c'; ctx.fillText('MN', mx-dpi*2.8/25.4, my-dpi*.6/25.4);
+  ctx.font = `700 ${font}px -apple-system,sans-serif`; ctx.textBaseline = 'bottom';
+  ctx.fillStyle = '#111'; ctx.textAlign = 'left'; ctx.fillText('N', boxX + mm(1.4), boxY + mm(1.5));
+  ctx.fillStyle = '#b21c1c'; ctx.textAlign = 'right'; ctx.fillText('MN', mx - mm(1.4), my + mm(1.5));
   ctx.restore();
 
   // metadata panel
-  const pad = dpi*2.2/25.4;
-  const panelH = dpi*17.5/25.4;
+  const pad = mm(2.2);
+  const panelH = mm(PANEL_MM);
   ctx.save();
   ctx.fillStyle = 'rgba(255,255,255,.90)'; ctx.fillRect(0, h-panelH, w, panelH);
   ctx.fillStyle = '#111';
-  const f1 = Math.max(15, dpi*2.0/25.4), f2 = Math.max(13, dpi*1.65/25.4);
+  const f1 = Math.max(15, mm(2.0)), f2 = Math.max(13, mm(1.65));
+  const narrow = w < h;
   ctx.font = `700 ${f1}px -apple-system,sans-serif`;
   ctx.textBaseline = 'top';
-  ctx.fillText(`1:25,000  |  磁北線 1 km = 40 mm  |  偏角 ${formatDeclination(declination)}  |  ${pageNo}/${pageCount}`, pad, h-panelH+pad);
+  const dateStr = els.tripDate.value ? `山行日 ${els.tripDate.value.replace(/-/g, '/')}  |  ` : '';
+  ctx.fillText(`${dateStr}1:25,000  |  磁北線 1 km = 40 mm  |  偏角 ${formatDeclination(declination)}  |  ${pageNo}/${pageCount}`, pad, h-panelH+pad);
   ctx.font = `${f2}px -apple-system,sans-serif`;
   ctx.fillText(`中心 ${center.lat.toFixed(5)}, ${center.lon.toFixed(5)}  |  出典：国土地理院「地理院タイル（標準地図）」`, pad, h-panelH+pad+f1*1.35);
-  ctx.fillText(`磁北偏角：GSI 2020.0近似式（手動指定時を除く）  |  印刷：100% / 実際のサイズ`, pad, h-panelH+pad+f1*1.35+f2*1.35);
+  ctx.fillText(narrow ? `偏角：GSI 2020.0近似式  |  印刷：100%` : `磁北偏角：GSI 2020.0近似式（手動指定時を除く）  |  印刷：100% / 実際のサイズ`, pad, h-panelH+pad+f1*1.35+f2*1.35);
 
   // exact 1 km calibration bar = 40 mm
-  const barW = dpi * 40 / 25.4;
+  const barW = mm(40);
   const by = h - pad*1.15;
-  ctx.lineWidth = Math.max(2, dpi*.25/25.4); ctx.strokeStyle = '#111';
+  ctx.lineWidth = Math.max(2, mm(.25)); ctx.strokeStyle = '#111';
   ctx.beginPath(); ctx.moveTo(w-pad-barW, by); ctx.lineTo(w-pad, by); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(w-pad-barW, by-dpi*1.2/25.4); ctx.lineTo(w-pad-barW, by+dpi*1.2/25.4); ctx.moveTo(w-pad, by-dpi*1.2/25.4); ctx.lineTo(w-pad, by+dpi*1.2/25.4); ctx.stroke();
-  ctx.font = `700 ${f2}px -apple-system,sans-serif`; ctx.textAlign = 'right'; ctx.fillText('1 km（紙上40 mm）', w-pad, by-dpi*4.0/25.4);
+  ctx.beginPath(); ctx.moveTo(w-pad-barW, by-mm(1.2)); ctx.lineTo(w-pad-barW, by+mm(1.2)); ctx.moveTo(w-pad, by-mm(1.2)); ctx.lineTo(w-pad, by+mm(1.2)); ctx.stroke();
+  ctx.font = `700 ${f2}px -apple-system,sans-serif`; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic'; ctx.fillText('1 km（紙上40 mm）', w-pad, by-mm(1.8));
   ctx.restore();
+
+  if (withTable && sched.length) drawPlanTable(ctx, geo, sched, dpi, panelH, pts);
 }
 
-async function canvasToJpegBytes(canvas, quality = 0.93) {
+async function canvasToJpegBytes(canvas, quality = 0.95) {
   const blob = await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('JPEG変換に失敗しました')), 'image/jpeg', quality));
   return new Uint8Array(await blob.arrayBuffer());
 }
@@ -689,15 +1017,10 @@ function bytes(...arrays) {
 const enc = new TextEncoder();
 const ascii = s => enc.encode(s);
 
-function buildPdf(pages, imageWidth, imageHeight) {
-  // One JPEG map image per A4 landscape PDF page. Physical placement is exact in PDF points.
-  const pageWpt = A4_LANDSCAPE_MM.w * 72 / 25.4;
-  const pageHpt = A4_LANDSCAPE_MM.h * 72 / 25.4;
-  const xpt = MAP_MARGIN_MM.x * 72 / 25.4;
-  const ypt = MAP_MARGIN_MM.y * 72 / 25.4;
-  const wpt = MAP_MM.w * 72 / 25.4;
-  const hpt = MAP_MM.h * 72 / 25.4;
-
+function buildPdf(pages, imageWidth, imageHeight, orient) {
+  // One JPEG map image per A4 PDF page. Physical placement is exact in PDF points.
+  const paper = PAPER_MM[orient], mm = mapMM(orient);
+  const pt = v => (v * 72 / 25.4).toFixed(4);
   const count = pages.length;
   const objCount = 2 + count*3;
   const kids = [];
@@ -705,12 +1028,10 @@ function buildPdf(pages, imageWidth, imageHeight) {
   const obj = new Array(objCount+1);
   obj[1] = ascii(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`);
   obj[2] = ascii(`2 0 obj\n<< /Type /Pages /Count ${count} /Kids [${kids.join(' ')}] >>\nendobj\n`);
-
   for (let i=0;i<count;i++) {
     const pageObj = 3+i*3, contentObj = pageObj+1, imageObj = pageObj+2;
-    obj[pageObj] = ascii(`${pageObj} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWpt.toFixed(4)} ${pageHpt.toFixed(4)}] /Resources << /XObject << /Im0 ${imageObj} 0 R >> >> /Contents ${contentObj} 0 R >>\nendobj\n`);
-    const cmd = `q\n${wpt.toFixed(4)} 0 0 ${hpt.toFixed(4)} ${xpt.toFixed(4)} ${ypt.toFixed(4)} cm\n/Im0 Do\nQ\n`;
-    const cmdBytes = ascii(cmd);
+    obj[pageObj] = ascii(`${pageObj} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pt(paper.w)} ${pt(paper.h)}] /Resources << /XObject << /Im0 ${imageObj} 0 R >> >> /Contents ${contentObj} 0 R >>\nendobj\n`);
+    const cmdBytes = ascii(`q\n${pt(mm.w)} 0 0 ${pt(mm.h)} ${pt(MAP_MARGIN_MM)} ${pt(MAP_MARGIN_MM)} cm\n/Im0 Do\nQ\n`);
     obj[contentObj] = bytes(ascii(`${contentObj} 0 obj\n<< /Length ${cmdBytes.length} >>\nstream\n`), cmdBytes, ascii(`endstream\nendobj\n`));
     const jpg = pages[i];
     obj[imageObj] = bytes(
@@ -719,7 +1040,6 @@ function buildPdf(pages, imageWidth, imageHeight) {
       ascii(`\nendstream\nendobj\n`)
     );
   }
-
   const header = ascii('%PDF-1.4\n%Topo25000\n');
   const offsets = new Array(objCount+1).fill(0);
   let pos = header.length;
@@ -740,52 +1060,45 @@ function setProgress(value, text) {
 }
 
 async function generatePdf() {
-  if (!state.start || !state.goal) return;
+  const lay = computeLayout();
+  if (!lay) return;
   els.pdfBtn.disabled = true;
   const originalText = els.pdfBtn.textContent;
   els.pdfBtn.textContent = '作成中…';
   try {
     const dpi = Number(els.dpiSelect.value);
-    const outW = Math.round(MAP_MM.w / 25.4 * dpi);
-    const outH = Math.round(MAP_MM.h / 25.4 * dpi);
-    const centers = choosePdfCenters(state.start, state.goal, els.multiPage.checked);
+    const outW = Math.round(lay.mapMM.w / 25.4 * dpi);
+    const outH = Math.round(lay.mapMM.h / 25.4 * dpi);
+    const sched = computeSchedule();
+    const centers = lay.pages.map(p => p.center);
     const jpgPages = [];
-
     for (let i=0;i<centers.length;i++) {
       const center = centers[i];
       const z = chooseTileZoom(center.lat, dpi);
-      const geo = pageGeo(center, z, outW, outH);
+      const geo = pageGeo(center, z, outW, outH, lay.mapMM);
       const canvas = document.createElement('canvas');
       canvas.width = outW; canvas.height = outH;
       const ctx = canvas.getContext('2d', { alpha: false });
       ctx.fillStyle = '#fff'; ctx.fillRect(0,0,outW,outH);
-
-      setProgress(i/centers.length, `Page ${i+1}/${centers.length}: 地理院タイルを取得中…`);
+      setProgress(i/centers.length, `${i+1}/${centers.length}枚目：地理院タイルを取得中…`);
       await drawTilesForPdf(ctx, geo, fraction => {
-        const total = (i + fraction*.82) / centers.length;
-        setProgress(total, `Page ${i+1}/${centers.length}: 地図 ${Math.round(fraction*100)}%`);
+        setProgress((i + fraction*.82) / centers.length, `${i+1}/${centers.length}枚目：地図 ${Math.round(fraction*100)}%`);
       });
-
-      let dec;
-      if (els.declinationMode.value === 'manual') dec = Number(els.manualDeclination.value);
-      else dec = gsiDeclination2020(center.lat, center.lon);
+      const dec = els.declinationMode.value === 'manual' ? Number(els.manualDeclination.value) : gsiDeclination2020(center.lat, center.lon);
       if (!Number.isFinite(dec)) throw new Error('磁北偏角の値が不正です。');
-
-      drawPdfOverlay(ctx, geo, center, i+1, centers.length, dec, state.start, state.goal, dpi);
-      setProgress((i+.9)/centers.length, `Page ${i+1}/${centers.length}: PDF画像を圧縮中…`);
+      drawPdfOverlay(ctx, geo, center, i+1, centers.length, dec, sched, dpi, els.tableCheck.checked);
+      setProgress((i+.9)/centers.length, `${i+1}/${centers.length}枚目：画像を圧縮中…`);
       jpgPages.push(await canvasToJpegBytes(canvas));
       canvas.width = 1; canvas.height = 1;
       await new Promise(r => setTimeout(r, 0));
     }
-
     setProgress(.97, 'PDFを組み立て中…');
-    const pdf = buildPdf(jpgPages, outW, outH);
-    const now = new Date();
-    const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
-    const filename = `Topo25000_${stamp}.pdf`;
+    const pdf = buildPdf(jpgPages, outW, outH, lay.orient);
+    const stamp = (els.tripDate.value || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
+    const name = (state.points.find((p, i) => i > 0 && /山|岳|峰|嶺/.test(p.name))?.name || '').replace(/[\\/:*?"<>|\s]/g, '');
+    const filename = `Topo25000_${stamp}${name ? '_' + name : ''}.pdf`;
     const file = new File([pdf], filename, { type: 'application/pdf' });
-    setProgress(1, `完成：${centers.length}ページ`);
-
+    setProgress(1, `完成：${lay.orient === 'landscape' ? 'A4横' : 'A4縦'} ${centers.length}枚（${(pdf.size / 1048576).toFixed(1)} MB）`);
     if (navigator.share && navigator.canShare?.({ files: [file] })) {
       await navigator.share({ files: [file], title: 'Topo25000 地形図PDF' });
     } else {
@@ -794,37 +1107,44 @@ async function generatePdf() {
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     }
   } catch (err) {
+    if (err?.name === 'AbortError') { setProgress(1, '共有をキャンセルしました'); return; }
     console.error(err);
     setProgress(0, `エラー：${err?.message || err}`);
     alert(`PDF作成に失敗しました。\n${err?.message || err}\n\n通信状態と地図タイル取得を確認してください。`);
   } finally {
-    els.pdfBtn.disabled = !(state.start && state.goal);
+    els.pdfBtn.disabled = state.points.length === 0;
     els.pdfBtn.textContent = originalText;
   }
 }
 
-els.modeStart.addEventListener('click', () => setMode('start'));
-els.modeGoal.addEventListener('click', () => setMode('goal'));
+/* ---------- イベント ---------- */
+
 els.placeSearchBtn.addEventListener('click', searchPlace);
 els.placeSearchInput.addEventListener('keydown', e => { if (e.key === 'Enter') searchPlace(); });
 els.applyCoordBtn.addEventListener('click', () => {
   const p = parseCoordinate(els.coordInput.value);
   if (!p) { alert('「緯度, 経度」の形式で入力してください。'); return; }
-  setPoint(state.mode, p, true);
+  state.center = { ...p };
+  addPoint(p);
+  els.coordInput.value = '';
 });
 els.coordInput.addEventListener('keydown', e => { if (e.key === 'Enter') els.applyCoordBtn.click(); });
-els.zoomInBtn.addEventListener('click', () => { state.zoom = clamp(state.zoom+1, 5, 18); renderPreview(); });
-els.zoomOutBtn.addEventListener('click', () => { state.zoom = clamp(state.zoom-1, 5, 18); renderPreview(); });
+for (const e of [els.startTime, els.paceSelect, els.tripDate]) e.addEventListener('change', () => planChanged(true));
+for (const e of [els.orientSelect, els.multiPage]) e.addEventListener('change', () => { updateLayoutInfo(); saveState(); fitPoints(); });
+for (const e of [els.dpiSelect, els.tableCheck]) e.addEventListener('change', saveState);
+els.zoomInBtn.addEventListener('click', () => { state.zoom = clamp(state.zoom+1, 5, 18); renderPreview(); saveState(); });
+els.zoomOutBtn.addEventListener('click', () => { state.zoom = clamp(state.zoom-1, 5, 18); renderPreview(); saveState(); });
 els.locateBtn.addEventListener('click', () => {
   if (!navigator.geolocation) return alert('このブラウザでは現在地を取得できません。');
   els.hint.textContent = '現在地を取得中…';
   navigator.geolocation.getCurrentPosition(pos => {
     state.center = { lat: pos.coords.latitude, lon: pos.coords.longitude };
     state.zoom = 15; renderPreview(); els.hint.textContent = '現在地を地図中央に表示しました';
-  }, err => { alert(`現在地を取得できませんでした: ${err.message}`); setMode(state.mode); }, { enableHighAccuracy: true, timeout: 12000 });
+  }, err => { alert(`現在地を取得できませんでした: ${err.message}`); }, { enableHighAccuracy: true, timeout: 12000 });
 });
 els.declinationMode.addEventListener('change', () => els.manualWrap.classList.toggle('hidden', els.declinationMode.value !== 'manual'));
 els.pdfBtn.addEventListener('click', generatePdf);
+els.fitBtn.addEventListener('click', () => { fitPoints(); saveState(); });
 
 els.canvas.addEventListener('pointerdown', e => {
   els.canvas.setPointerCapture?.(e.pointerId);
@@ -833,7 +1153,7 @@ els.canvas.addEventListener('pointerdown', e => {
 els.canvas.addEventListener('pointermove', e => {
   if (!state.drag) return;
   const dx = e.clientX - state.drag.x, dy = e.clientY - state.drag.y;
-  if (Math.hypot(dx,dy) > 5) state.drag.moved = true;
+  if (Math.hypot(dx,dy) > 6) state.drag.moved = true;
   if (!state.drag.moved) return;
   const cp = project(state.drag.center.lat, state.drag.center.lon, state.zoom);
   state.center = unproject(cp.x - dx, cp.y - dy, state.zoom);
@@ -843,17 +1163,28 @@ els.canvas.addEventListener('pointerup', e => {
   if (!state.drag) return;
   const moved = state.drag.moved;
   state.drag = null;
-  if (!moved) setPoint(state.mode, canvasPointToLatLon(e.clientX,e.clientY));
+  if (moved) saveState();
+  else addPoint(canvasPointToLatLon(e.clientX, e.clientY));
 });
 els.canvas.addEventListener('pointercancel', () => state.drag = null);
-els.canvas.addEventListener('dblclick', e => { state.center = canvasPointToLatLon(e.clientX,e.clientY); state.zoom=clamp(state.zoom+1,5,18); renderPreview(); });
+els.canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  state.zoom = clamp(state.zoom + (e.deltaY < 0 ? 1 : -1), 5, 18);
+  renderPreview();
+}, { passive: false });
 
 window.addEventListener('resize', () => renderPreview());
 window.addEventListener('orientationchange', () => setTimeout(renderPreview, 200));
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js').catch(console.warn);
 
-renderPreview();
+loadState();
+if (!els.tripDate.value) {
+  const t = new Date(Date.now() + 86400000);
+  els.tripDate.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+}
+planChanged(true);
+for (const p of state.points) if (p.ele == null) fetchElevation(p);
 
   </script>
 </body>
