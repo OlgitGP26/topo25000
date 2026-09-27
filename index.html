@@ -209,6 +209,7 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
         </div>
       </details>
 
+      <label class="exit-label">PDFのファイル名（空欄なら自動）<input id="fileNameInput" autocomplete="off" /></label>
       <div id="layoutInfo" class="layout-info"></div>
       <button id="pdfBtn" class="primary" type="button" disabled>1:25,000 PDFを作成</button>
       <div id="progress" class="progress hidden" aria-live="polite">
@@ -267,7 +268,7 @@ const els = {
   buildBtn: $('buildBtn'), buildStatus: $('buildStatus'), buildChoices: $('buildChoices'),
   planList: $('planList'), planSummary: $('planSummary'),
   locateBtn: $('locateBtn'), fitBtn: $('fitBtn'), zoomInBtn: $('zoomInBtn'), zoomOutBtn: $('zoomOutBtn'),
-  orientSelect: $('orientSelect'), dpiSelect: $('dpiSelect'), tableCheck: $('tableCheck'), multiPage: $('multiPage'),
+  orientSelect: $('orientSelect'), dpiSelect: $('dpiSelect'), fileNameInput: $('fileNameInput'), tableCheck: $('tableCheck'), multiPage: $('multiPage'),
   declinationMode: $('declinationMode'), manualWrap: $('manualDeclinationWrap'), manualDeclination: $('manualDeclination'),
   layoutInfo: $('layoutInfo'), pdfBtn: $('pdfBtn'),
   progress: $('progress'), progressBar: $('progressBar'), progressText: $('progressText'),
@@ -851,7 +852,20 @@ function computeLayout() {
   return { orient: best.orient, mapMM: best.m, pages, fits: best.fits, cols: best.cols, rows: best.rows };
 }
 
+// 例：20261003_剱岳_室堂
+function autoFileName() {
+  const stamp = (els.tripDate.value || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
+  const peak = state.points.find(p => p.role === 'peak') || state.points.find((p, i) => i > 0 && /山|岳|峰|嶺/.test(p.name));
+  const start = state.points[0];
+  return safeFileName([stamp, peak?.name, start && start !== peak ? start.name : ''].filter(Boolean).join('_')) || `Topo25000_${stamp}`;
+}
+
+function safeFileName(v) {
+  return String(v || '').trim().replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 80);
+}
+
 function updateLayoutInfo() {
+  els.fileNameInput.placeholder = autoFileName();
   const lay = computeLayout();
   if (!lay) { els.layoutInfo.textContent = ''; return; }
   const o = lay.orient === 'landscape' ? 'A4横' : 'A4縦';
@@ -1299,9 +1313,7 @@ async function generatePdf() {
     }
     setProgress(.97, 'PDFを組み立て中…');
     const pdf = buildPdf(jpgPages, outW, outH, lay.orient);
-    const stamp = (els.tripDate.value || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
-    const name = (state.points.find((p, i) => i > 0 && /山|岳|峰|嶺/.test(p.name))?.name || '').replace(/[\\/:*?"<>|\s]/g, '');
-    const filename = `Topo25000_${stamp}${name ? '_' + name : ''}.pdf`;
+    const filename = `${safeFileName(els.fileNameInput.value) || autoFileName()}.pdf`;
     const file = new File([pdf], filename, { type: 'application/pdf' });
     setProgress(1, `完成：${lay.orient === 'landscape' ? 'A4横' : 'A4縦'} ${centers.length}枚（${(pdf.size / 1048576).toFixed(1)} MB）`);
     if (navigator.share && navigator.canShare?.({ files: [file] })) {

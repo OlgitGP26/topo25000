@@ -1,6 +1,6 @@
 'use strict';
 // アプリ本体はオフラインでも開けるように保存。地図タイルは見た分だけ一定数まで保存。
-const APP_CACHE = 'topo25000-app-v7';
+const APP_CACHE = 'topo25000-app-v8';
 const TILE_CACHE = 'topo25000-tiles-v1';
 const TILE_LIMIT = 800;
 const APP_FILES = ['./', './index.html', './manifest.webmanifest', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
