@@ -139,9 +139,10 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
       </div>
 
       <div class="route-grid">
-        <label>登山口<input id="trailheadInput" autocomplete="off" placeholder="例：室堂" /></label>
+        <label>登山口<input id="trailheadInput" autocomplete="off" placeholder="例：室堂・北鎌倉駅" /></label>
         <label>山頂<input id="peakInput" autocomplete="off" enterkeyhint="go" placeholder="例：剱岳" /></label>
       </div>
+      <p class="note">駅・バス停・神社なども入れられます（地名検索：国土地理院、© OpenStreetMap contributors）。</p>
       <label class="exit-label">下山口（空欄なら同じ道で往復）<input id="exitInput" autocomplete="off" placeholder="例：馬場島" /></label>
       <label class="exit-label">GPX（任意・YAMAPなどの記録）時間の計算と地図の線に使います<input id="gpxInput" type="file" /></label>
       <div class="gpx-row"><div id="gpxStatus" class="search-status"></div><button id="gpxClearBtn" type="button" class="hidden">GPXを外す</button></div>
@@ -240,6 +241,7 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
 
 const GSI_TILE = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/std/${z}/${x}/${y}.png`;
 const GSI_PLACE_SEARCH = 'https://msearch.gsi.go.jp/address-search/AddressSearch';
+const OSM_PLACE_SEARCH = 'https://nominatim.openstreetmap.org/search';
 const GSI_ELEVATION = (lat, lon) => `https://cyberjapandata2.gsi.go.jp/general/dem/scripts/getelevation.php?lon=${lon}&lat=${lat}&outtype=JSON`;
 const EARTH_R = 6371008.8;
 const WEBMERCATOR_MPP0 = 156543.03392804097;
@@ -702,14 +704,34 @@ async function gsiSearch(q) {
   }).filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lon)).slice(0, 20);
 }
 
+// 駅・バス停・神社などは地理院の地名検索に無いことが多いので、OpenStreetMapでも探す。
+// 利用規約に合わせ、1秒に1回までに間隔をあける
+let osmNext = 0;
+async function osmSearch(q) {
+  const wait = osmNext - Date.now();
+  osmNext = Math.max(Date.now(), osmNext) + 1100;
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  const res = await fetch(`${OSM_PLACE_SEARCH}?format=jsonv2&countrycodes=jp&accept-language=ja&limit=10&q=${encodeURIComponent(q)}`, { mode: 'cors' });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (Array.isArray(data) ? data : []).map(d => {
+    let title = String(d.name || String(d.display_name || '').split(',')[0] || q).trim();
+    if ((d.category === 'railway' || d.type === 'station') && !/駅$/.test(title)) title += '駅';
+    return { title, lat: Number(d.lat), lon: Number(d.lon) };
+  }).filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lon));
+}
+
 // 「室堂登山口」→「室堂」のように、地名検索に載りにくい語尾を外して探し直す
 const PLACE_SUFFIX = /(登山口|登山道入口|登山道|入口|入り口|バス停|バスターミナル|ターミナル|駐車場|山頂|頂上|駅)$/;
 
 async function smartSearch(q) {
   const base = q.replace(PLACE_SUFFIX, '').trim() || q;
   const lists = await Promise.all([gsiSearch(q), base !== q ? gsiSearch(base) : Promise.resolve([])]);
+  const gsiHit = [...lists[0], ...lists[1]].some(r => r.title.replace(/\s/g, '').includes(base));
+  // 地理院で見つからない時や、駅・バス停などはOpenStreetMapでも探す
+  if (!gsiHit || base !== q) lists.push(await osmSearch(q).catch(() => []));
   const seen = new Set();
-  const all = [...lists[0], ...lists[1]].filter(r => {
+  const all = lists.flat().filter(r => {
     const k = `${r.lat.toFixed(5)},${r.lon.toFixed(5)}`;
     if (seen.has(k)) return false;
     seen.add(k); return true;
@@ -733,6 +755,14 @@ async function buildPlan() {
   els.buildChoices.classList.add('hidden');
   try {
     const [th, pk, ex] = await Promise.all([smartSearch(qTh), smartSearch(qPk), qEx ? smartSearch(qEx) : Promise.resolve([])]);
+    // 見つからない時、GPXがあればその始点・最高点・終点を使う
+    const tp = state.track?.pts;
+    if (tp) {
+      const top = tp.reduce((m, p) => (p.ele ?? -Infinity) > (m.ele ?? -Infinity) ? p : m, tp[0]);
+      if (!th.length) th.push({ title: 'GPXの始点', lat: tp[0].lat, lon: tp[0].lon });
+      if (!pk.length) pk.push({ title: 'GPXの最高点', lat: top.lat, lon: top.lon });
+      if (qEx && !ex.length) ex.push({ title: 'GPXの終点', lat: tp[tp.length - 1].lat, lon: tp[tp.length - 1].lon });
+    }
     const miss = [!th.length && `登山口「${qTh}」`, !pk.length && `山頂「${qPk}」`, qEx && !ex.length && `下山口「${qEx}」`].filter(Boolean);
     if (miss.length) { els.buildStatus.textContent = `${miss.join('・')}が見つかりません。別の書き方にするか、地図をタップして置いてください。`; return; }
     // 同名の場所が全国にあるので、登山口と山頂がいちばん近い組み合わせを選ぶ
@@ -745,7 +775,6 @@ async function buildPlan() {
     state.cands = { th, pk, ex };
     // GPXがあれば、近くの登山口・下山口はGPXの始点・終点に合わせる
     const snap = (p, q) => state.track && q && haversine(p, q) <= GPX_NEAR_M ? { lat: q.lat, lon: q.lon } : p;
-    const tp = state.track?.pts;
     const thPos = snap(bestPair.t, tp?.[0]);
     const exPos = e ? snap(e, tp?.[tp.length - 1]) : null;
     const snapped = thPos !== bestPair.t;
@@ -1035,21 +1064,14 @@ async function searchPlace() {
   els.searchResults.innerHTML = '';
   els.searchResults.classList.add('hidden');
   try {
-    const res = await fetch(`${GSI_PLACE_SEARCH}?q=${encodeURIComponent(q)}`, { mode: 'cors', cache: 'no-store' });
-    if (!res.ok) throw new Error(`検索サーバー応答 ${res.status}`);
-    const data = await res.json();
-    const valid = (Array.isArray(data) ? data : []).filter(item => {
-      const c = item?.geometry?.coordinates;
-      return Array.isArray(c) && c.length >= 2 && Number.isFinite(Number(c[0])) && Number.isFinite(Number(c[1]));
-    }).slice(0, 12);
+    let valid = (await gsiSearch(q)).slice(0, 12);
+    if (!valid.length) valid = (await osmSearch(q).catch(() => [])).slice(0, 12);
     if (!valid.length) {
       els.searchStatus.textContent = '候補が見つかりませんでした。市町村名などを加えて再検索してください。';
       return;
     }
     els.searchStatus.textContent = `${valid.length}件。候補をタップすると行程に追加します。`;
-    for (const item of valid) {
-      const [lon, lat] = item.geometry.coordinates.map(Number);
-      const title = item?.properties?.title || q;
+    for (const { lat, lon, title } of valid) {
       els.searchResults.append(el('button', { type: 'button', class: 'search-result', onclick: () => {
         state.zoom = Math.max(state.zoom, 14);
         state.center = { lat, lon };
