@@ -782,6 +782,12 @@ async function buildPlan() {
         const more = (await osmSearch(qPk, t).catch(() => [])).filter(r => r.title.replace(/\s/g, '').includes(base));
         if (more.length) { pkC.push(...more); pk.push(...more); break; }
       }
+      // それでも遠い時は、GPXがあればその最高点を山頂にする
+      if (closest(pkC, thC) > FAR_WARN_M && tp) {
+        const top = tp.reduce((m, p) => (p.ele ?? -Infinity) > (m.ele ?? -Infinity) ? p : m, tp[0]);
+        const g = { title: `${qPk}（GPXの最高点）`, lat: top.lat, lon: top.lon };
+        pkC.length = 0; pkC.push(g); pk.unshift(g);
+      }
     }
     if (exC.length && closest(exC, pkC) > FAR_WARN_M) {
       const near = nearest(pkC, thC[0]);
