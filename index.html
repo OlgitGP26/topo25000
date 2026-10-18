@@ -707,11 +707,13 @@ async function gsiSearch(q) {
 // 駅・バス停・神社などは地理院の地名検索に無いことが多いので、OpenStreetMapでも探す。
 // 利用規約に合わせ、1秒に1回までに間隔をあける
 let osmNext = 0;
-async function osmSearch(q) {
+async function osmSearch(q, near) {
   const wait = osmNext - Date.now();
   osmNext = Math.max(Date.now(), osmNext) + 1100;
   if (wait > 0) await new Promise(r => setTimeout(r, wait));
-  const res = await fetch(`${OSM_PLACE_SEARCH}?format=jsonv2&countrycodes=jp&accept-language=ja&limit=10&q=${encodeURIComponent(q)}`, { mode: 'cors' });
+  // near があれば、その周り約30 kmの中だけを探す
+  const box = near ? `&bounded=1&viewbox=${near.lon - .35},${near.lat + .28},${near.lon + .35},${near.lat - .28}` : '';
+  const res = await fetch(`${OSM_PLACE_SEARCH}?format=jsonv2&countrycodes=jp&accept-language=ja&limit=10${box}&q=${encodeURIComponent(q)}`, { mode: 'cors' });
   if (!res.ok) return [];
   const data = await res.json();
   return (Array.isArray(data) ? data : []).map(d => {
@@ -727,9 +729,8 @@ const PLACE_SUFFIX = /(登山口|登山道入口|登山道|入口|入り口|バ�
 async function smartSearch(q) {
   const base = q.replace(PLACE_SUFFIX, '').trim() || q;
   const lists = await Promise.all([gsiSearch(q), base !== q ? gsiSearch(base) : Promise.resolve([])]);
-  const gsiHit = [...lists[0], ...lists[1]].some(r => r.title.replace(/\s/g, '').includes(base));
-  // 地理院で見つからない時や、駅・バス停などはOpenStreetMapでも探す
-  if (!gsiHit || base !== q) lists.push(await osmSearch(q).catch(() => []));
+  // 地理院に無い小さな山（鎌倉の大平山など）や駅もあるので、OpenStreetMapでも必ず探す
+  lists.push(await osmSearch(q).catch(() => []));
   const seen = new Set();
   const all = lists.flat().filter(r => {
     const k = `${r.lat.toFixed(5)},${r.lon.toFixed(5)}`;
@@ -765,13 +766,44 @@ async function buildPlan() {
     }
     const miss = [!th.length && `登山口「${qTh}」`, !pk.length && `山頂「${qPk}」`, qEx && !ex.length && `下山口「${qEx}」`].filter(Boolean);
     if (miss.length) { els.buildStatus.textContent = `${miss.join('・')}が見つかりません。別の書き方にするか、地図をタップして置いてください。`; return; }
-    // 同名の場所が全国にあるので、登山口と山頂がいちばん近い組み合わせを選ぶ
-    let bestPair = null;
-    for (const s of pk) for (const t of th) {
-      const d = haversine(s, t);
-      if (!bestPair || d < bestPair.d) bestPair = { s, t, d };
+    // GPXがあれば、GPXの道の近くにある候補だけにしぼる
+    const nearTrack = list => {
+      if (!tp) return list;
+      const near = list.filter(r => tp.some(p => haversine(r, p) <= GPX_NEAR_M));
+      return near.length ? near : list;
+    };
+    const thC = nearTrack(th), pkC = nearTrack(pk);
+    let exC = nearTrack(ex);
+    // 同名の山が多い時は、登山口の近く（約30 km）だけでもう一度探す
+    const closest = (list, refs) => Math.min(...list.flatMap(r => refs.map(t => haversine(r, t))));
+    if (closest(pkC, thC) > FAR_WARN_M) {
+      const base = qPk.replace(PLACE_SUFFIX, '').trim() || qPk;
+      for (const t of thC.slice(0, 3)) {
+        const more = (await osmSearch(qPk, t).catch(() => [])).filter(r => r.title.replace(/\s/g, '').includes(base));
+        if (more.length) { pkC.push(...more); pk.push(...more); break; }
+      }
+      // それでも遠い時は、GPXがあればその最高点を山頂にする
+      if (closest(pkC, thC) > FAR_WARN_M && tp) {
+        const top = tp.reduce((m, p) => (p.ele ?? -Infinity) > (m.ele ?? -Infinity) ? p : m, tp[0]);
+        const g = { title: `${qPk}（GPXの最高点）`, lat: top.lat, lon: top.lon };
+        pkC.length = 0; pkC.push(g); pk.unshift(g);
+      }
     }
-    const e = ex.length ? nearest(ex, bestPair.s) : null;
+    if (exC.length && closest(exC, pkC) > FAR_WARN_M) {
+      const near = nearest(pkC, thC[0]);
+      const base = qEx.replace(PLACE_SUFFIX, '').trim() || qEx;
+      const more = (await osmSearch(qEx, near).catch(() => [])).filter(r => r.title.replace(/\s/g, '').includes(base));
+      if (more.length) { exC = [...exC, ...more]; ex.push(...more); }
+    }
+    // 同名の場所が全国にあるので、登山口・山頂・下山口がいちばん近くまとまる組み合わせを選ぶ
+    let bestPair = null;
+    for (const s of pkC) for (const t of thC) {
+      const d = haversine(s, t);
+      const eBest = exC.length ? nearest(exC, s) : null;
+      const score = d + (eBest ? haversine(s, eBest) : 0);
+      if (!bestPair || score < bestPair.score) bestPair = { s, t, d, e: eBest, score };
+    }
+    const e = bestPair.e;
     state.cands = { th, pk, ex };
     // GPXがあれば、近くの登山口・下山口はGPXの始点・終点に合わせる
     const snap = (p, q) => state.track && q && haversine(p, q) <= GPX_NEAR_M ? { lat: q.lat, lon: q.lon } : p;
