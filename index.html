@@ -89,6 +89,8 @@ summary { font-weight: 700; cursor: pointer; }
 .primary { width: 100%; margin-top: 14px; padding: 14px; border: 0; border-radius: 12px; background: var(--accent); color: white; font-weight: 800; font-size: 16px; }
 .primary:disabled { opacity: .45; }
 .layout-info { margin-top: 8px; font-size: 12px; font-weight: 700; }
+.layout-info button { margin: 6px 6px 0 0; padding: 6px 10px; font-size: 13px; }
+.zoom-controls button.on { background: #a01414; color: white; }
 .progress { margin-top: 12px; display: grid; gap: 5px; }
 .progress-track { height: 8px; border-radius: 999px; overflow: hidden; background: #ccd3cd; }
 #progressBar { width: 0%; height: 100%; background: var(--accent); transition: width .15s linear; }
@@ -119,13 +121,14 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
         <button id="zoomInBtn" type="button" aria-label="拡大">＋</button>
         <button id="zoomOutBtn" type="button" aria-label="縮小">−</button>
         <button id="fitBtn" type="button" aria-label="印刷範囲を表示" style="font-size:18px">⤢</button>
+        <button id="frameBtn" type="button" aria-label="印刷枠を動かす" style="font-size:18px">✥</button>
       </div>
       <div id="mapHint" class="map-hint">登山口と山頂を入れて「計画を作る」。途中の地点は地図をタップ</div>
     </section>
 
     <section class="panel">
-      <h2>山行日と行動開始</h2>
-      <div class="trip-grid">
+      <h2>登山口と山頂</h2>
+      <div class="trip-grid hidden">
         <label>山行日<input id="tripDate" type="date" /></label>
         <label>行動開始<input id="startTime" type="time" value="07:00" /></label>
         <label>歩く速さ
@@ -168,7 +171,7 @@ footer { max-width: 760px; margin: 12px auto 24px; padding: 0 16px; color: var(-
       <div id="planList" class="plan-list"></div>
       <div id="planSummary" class="summary"></div>
       <div id="recordLinks" class="records"></div>
-      <p class="note">時刻は目安です。GPXを入れると、その道の距離と登り下りで計算します（YAMAPに近い時間）。GPXが無い区間は地点間を直線で結び、その下の地形から計算します（道が回り込む所は小屋や分岐を足すと正確になります）。実際の時刻を入れると、その地点を基準に後ろを計算し直します。空欄に戻すと自動計算に戻ります。</p>
+      <p class="note">時間は標準コースタイム（休憩なし）の目安です。GPXを入れると、その道の距離と登り下りで計算します（YAMAPに近い時間）。GPXが無い区間は地点間を直線で結び、その下の地形から計算します（道が回り込む所は小屋や分岐を足すと正確になります）。</p>
     </section>
 
     <section class="panel">
@@ -252,7 +255,7 @@ const SCALE_DENOM = 25000;
 const M_PER_MM = SCALE_DENOM / 1000;
 const TILE_SIZE = 256;
 const PDF_TILE_ZMAX = 16;       // z17は地図の文字が紙上で小さすぎるため16まで
-const LABEL_PAD_M = 600;        // 地点ラベル用に行程の外側へ取る余白
+const LABEL_PADS_M = [600, 350, 150]; // 地点ラベル用に行程の外側へ取る余白（広い順に試す）
 const PAGE_OVERLAP_M = 1000;    // 複数ページ時の重なり
 const STORE_KEY = 'topo25000.plan.v1';
 const FAR_WARN_M = 25000;       // 登山口と山頂がこれ以上離れていたら検索違いを疑う
@@ -271,6 +274,8 @@ const state = {
   legProfiles: new Map(),
   profileTimer: 0,
   track: null,
+  frameShift: { x: 0, y: 0 }, // 印刷枠の手動ずらし（m、東・南が正）
+  frameMode: false,
 };
 
 const $ = id => document.getElementById(id);
@@ -283,7 +288,7 @@ const els = {
   trailheadInput: $('trailheadInput'), peakInput: $('peakInput'), exitInput: $('exitInput'),
   buildBtn: $('buildBtn'), buildStatus: $('buildStatus'), buildChoices: $('buildChoices'),
   planList: $('planList'), planSummary: $('planSummary'),
-  locateBtn: $('locateBtn'), fitBtn: $('fitBtn'), zoomInBtn: $('zoomInBtn'), zoomOutBtn: $('zoomOutBtn'),
+  locateBtn: $('locateBtn'), fitBtn: $('fitBtn'), frameBtn: $('frameBtn'), zoomInBtn: $('zoomInBtn'), zoomOutBtn: $('zoomOutBtn'),
   orientSelect: $('orientSelect'), dpiSelect: $('dpiSelect'), fileNameInput: $('fileNameInput'), tableCheck: $('tableCheck'), gpxPdfCheck: $('gpxPdfCheck'), multiPage: $('multiPage'),
   declinationMode: $('declinationMode'), manualWrap: $('manualDeclinationWrap'), manualDeclination: $('manualDeclination'),
   layoutInfo: $('layoutInfo'), pdfBtn: $('pdfBtn'),
@@ -360,6 +365,12 @@ function fmtHM(min) {
   const r = mod(t, 1440);
   const hm = `${String(Math.floor(r / 60)).padStart(2, '0')}:${String(r % 60).padStart(2, '0')}`;
   return day > 0 ? `翌${hm}` : hm;
+}
+
+// 標準コースタイムの書き方（例 1:30）
+function fmtCT(min) {
+  const t = Math.round(min);
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 }
 
 function fmtDuration(min) {
@@ -611,20 +622,15 @@ function moveMinutes(st) {
   return st.min != null ? st.min + formulaMinutes(st.extra) : formulaMinutes(st);
 }
 
+// 標準コースタイム（休憩を含まない歩く時間）。arr は登山口からの累計（分）
 function computeSchedule() {
-  const pace = Number(els.paceSelect.value) || 1;
-  const start = parseHM(els.startTime.value) ?? 420;
   const rows = [];
   const stats = legStats();
-  let prevDep = null;
+  let total = 0;
   state.points.forEach((p, i) => {
-    let move = 0, auto;
-    if (i === 0) auto = start;
-    else { move = Math.round(moveMinutes(stats[i]) * pace); auto = prevDep + move; }
-    const arr = p.fixed ?? auto;
-    const dep = arr + (Number(p.rest) || 0);
-    rows.push({ p, move, arr, dep, leg: stats[i] });
-    prevDep = dep;
+    const move = i === 0 ? 0 : Math.round(moveMinutes(stats[i]));
+    total += move;
+    rows.push({ p, move, arr: total, dep: total, leg: stats[i] });
   });
   return rows;
 }
@@ -754,6 +760,7 @@ async function buildPlan() {
   els.buildBtn.disabled = true;
   els.buildStatus.textContent = '検索中…';
   els.buildChoices.classList.add('hidden');
+  state.frameShift = { x: 0, y: 0 };
   try {
     const [th, pk, ex] = await Promise.all([smartSearch(qTh), smartSearch(qPk), qEx ? smartSearch(qEx) : Promise.resolve([])]);
     // 見つからない時、GPXがあればその始点・最高点・終点を使う
@@ -940,14 +947,6 @@ function renderPlanList() {
   state.points.forEach((p, i) => {
     const s = sched[i];
     const nameIn = el('input', { value: p.name, 'ariaLabel': '地点名', oninput: e => { p.name = e.target.value; for (const q of state.points) if (q.mirrorOf === p.key || (state.roundTrip && i === 0 && q === state.points[state.points.length - 1])) q.name = p.name; els.planList.querySelectorAll('.plan-row').forEach((row, k) => { if (k !== i) row.querySelector('.r1 input').value = state.points[k]?.name ?? ''; }); saveState(); renderPreview(); renderRecordLinks(); } });
-    const timeIn = el('input', { type: 'time', value: fmtHM(s.arr).replace('翌', ''), className: p.fixed != null ? 'fixed' : '', onchange: e => {
-      const v = parseHM(e.target.value);
-      p.fixed = v;
-      if (i === 0 && v != null) { els.startTime.value = e.target.value; p.fixed = null; }
-      planChanged(true);
-    } });
-    timeIn.dataset.role = 'arr';
-    const restIn = el('input', { type: 'number', min: 0, step: 5, value: p.rest, inputMode: 'numeric', onchange: e => { p.rest = Math.max(0, Number(e.target.value) || 0); planChanged(false); } });
     const eleIn = el('input', { type: 'number', step: 1, value: p.ele ?? '', placeholder: '取得中', inputMode: 'numeric', onchange: e => { const v = e.target.value === '' ? null : Number(e.target.value); p.ele = Number.isFinite(v) ? v : null; planChanged(false); } });
     const info = el('div', { class: 'info' });
     info.dataset.role = 'info';
@@ -961,8 +960,6 @@ function renderPlanList() {
         el('button', { type: 'button', textContent: '✕', ariaLabel: '削除', onclick: () => removePoint(i) }),
       ]),
       el('div', { class: 'r2' }, [
-        el('label', {}, [i === 0 ? '出発' : '到着', timeIn]),
-        el('label', {}, ['休憩(分)', restIn]),
         el('label', {}, ['標高(m)', eleIn]),
       ]),
       info,
@@ -975,10 +972,9 @@ function infoText(s, i) {
   const parts = [];
   if (i > 0) {
     const g = s.leg;
-    parts.push(`前の地点から約${fmtDuration(s.move)}${g && g.src !== 'ele' ? `（${g.src === 'gpx' ? `${g.min != null ? 'GPXの時刻' : 'GPX'}${g.off ? '＋直線' : ''} ` : ''}${g.km.toFixed(1)} km・登り${g.up} m・下り${g.down} m）` : ''}`);
+    parts.push(`前の地点から 標準${fmtDuration(s.move)}${g && g.src !== 'ele' ? `（${g.src === 'gpx' ? `${g.min != null ? 'GPXの時刻' : 'GPX'}${g.off ? '＋直線' : ''} ` : ''}${g.km.toFixed(1)} km・登り${g.up} m・下り${g.down} m）` : ''}`);
   }
-  if (s.p.fixed != null) parts.push('時刻を手入力');
-  parts.push(`発 ${fmtHM(s.dep)}`);
+  if (i > 0) parts.push(`累計 ${fmtDuration(s.arr)}`);
   return parts.join(' ・ ');
 }
 
@@ -987,8 +983,6 @@ function refreshPlanTimes() {
   const rows = els.planList.querySelectorAll('.plan-row');
   rows.forEach((row, i) => {
     const s = sched[i]; if (!s) return;
-    const t = row.querySelector('[data-role=arr]');
-    if (t && document.activeElement !== t) t.value = fmtHM(s.arr).replace('翌', '');
     row.querySelector('[data-role=info]').textContent = infoText(s, i);
   });
 }
@@ -1003,14 +997,9 @@ function renderSummary() {
   const srcs = new Set();
   for (const s of sched.slice(1)) { up += s.leg.up; down += s.leg.down; km += s.leg.km; srcs.add(s.leg.src); }
   const src = srcs.has('ele') ? '（地形を読み込み中）' : srcs.has('gpx') ? (srcs.has('terrain') ? '（GPXと地形から計算）' : '（GPXから計算）') : '（地形から計算）';
-  lines.push(`行動 ${fmtHM(first.arr)} → ${fmtHM(last.arr)}（${fmtDuration(last.arr - first.arr)}）`);
+  lines.push(`標準コースタイム 合計${fmtDuration(last.arr - first.arr)}（休憩を含まない）`);
   if (eles.length) lines.push(`距離 約${km.toFixed(1)} km ・ 最高 ${Math.max(...eles)} m ・ 登り計 ${up} m ・ 下り計 ${down} m${src}`);
-  const sun = sunTimes(els.tripDate.value, state.points[0].lat, state.points[0].lon);
-  let warn = '';
-  if (sun) {
-    lines.push(`日の出 ${fmtHM(sun.rise)} ・ 日の入り ${fmtHM(sun.set)}`);
-    if (last.arr > sun.set - 30) warn = '⚠ 最後の地点が日の入り30分前より遅いです。行程を見直してください。';
-  }
+  const warn = '';
   els.planSummary.innerHTML = '';
   for (const l of lines) els.planSummary.append(el('div', { textContent: l }));
   if (warn) els.planSummary.append(el('div', { class: 'warn', textContent: warn }));
@@ -1055,7 +1044,7 @@ function saveState() {
       route: [els.trailheadInput.value, els.peakInput.value, els.exitInput.value],
       roundTrip: !!state.roundTrip,
       points: state.points.map(({ key, role, mirrorOf, name, lat, lon, ele, rest, fixed }) => ({ key, role, mirrorOf, name, lat, lon, ele, rest, fixed })),
-      center: state.center, zoom: state.zoom,
+      center: state.center, zoom: state.zoom, multi: els.multiPage.checked, frameShift: state.frameShift,
     }));
   } catch {}
 }
@@ -1079,6 +1068,8 @@ function loadState() {
   }
   if (s.center && Number.isFinite(s.center.lat)) state.center = s.center;
   if (Number.isFinite(s.zoom)) state.zoom = s.zoom;
+  if (typeof s.multi === 'boolean') els.multiPage.checked = s.multi;
+  if (Number.isFinite(s.frameShift?.x) && Number.isFinite(s.frameShift?.y)) state.frameShift = { x: s.frameShift.x, y: s.frameShift.y };
 }
 
 /* ---------- 地名検索 ---------- */
@@ -1139,37 +1130,50 @@ function computeLayout() {
   const minY = Math.min(...px.map(q => q.y)), maxY = Math.max(...px.map(q => q.y));
   const mid = unproject((minX + maxX) / 2, (minY + maxY) / 2, zRef);
   const mpp = mercatorMpp(mid.lat, zRef);
-  const bw = (maxX - minX) * mpp + 2 * LABEL_PAD_M;
-  const bh = (maxY - minY) * mpp + 2 * LABEL_PAD_M;
   const allowMulti = els.multiPage.checked;
   const pref = els.orientSelect.value;
   const cands = pref === 'auto' ? ['landscape', 'portrait'] : [pref];
 
-  let best = null;
-  for (const orient of cands) {
-    const m = mapMM(orient);
-    const gw = m.w * M_PER_MM, gh = (m.h - PANEL_MM) * M_PER_MM; // 情報帯を除いた使える範囲（m）
-    const need = (b, g) => b <= g ? 1 : Math.ceil((b - PAGE_OVERLAP_M) / (g - PAGE_OVERLAP_M));
-    const cols = allowMulti ? need(bw, gw) : 1;
-    const rows = allowMulti ? need(bh, gh) : 1;
-    const slack = Math.min(gw / bw, gh / bh);
-    const cand = { orient, cols, rows, count: cols * rows, slack, gw, gh, m, fits: bw <= gw && bh <= gh };
-    if (!best || cand.count < best.count || (cand.count === best.count && cand.slack > best.slack)) best = cand;
-  }
-
-  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-  const stepX = (best.gw - PAGE_OVERLAP_M) / mpp, stepY = (best.gh - PAGE_OVERLAP_M) / mpp;
+  const shift = state.frameShift;
+  const cx = (minX + maxX) / 2 + shift.x / mpp, cy = (minY + maxY) / 2 + shift.y / mpp;
   const panelShift = (PANEL_MM * M_PER_MM / 2) / mpp; // 情報帯の分だけ地図中心を南へずらす
-  const pages = [];
-  for (let r = 0; r < best.rows; r++) {
-    for (let c = 0; c < best.cols; c++) {
-      const x = cx + (c - (best.cols - 1) / 2) * stepX;
-      const y = cy + (r - (best.rows - 1) / 2) * stepY + panelShift;
-      pages.push({ center: unproject(x, y, zRef) });
+
+  // 余白は広い順に試す。ページ数→枠の外に出る量→余裕の順で選ぶ（1枚に収まるなら余白を削る）
+  let best = null;
+  for (const pad of LABEL_PADS_M) {
+    const bw = (maxX - minX) * mpp + 2 * pad;
+    const bh = (maxY - minY) * mpp + 2 * pad;
+    for (const orient of cands) {
+      const m = mapMM(orient);
+      const gw = m.w * M_PER_MM, gh = (m.h - PANEL_MM) * M_PER_MM; // 情報帯を除いた使える範囲（m）
+      const need = (b, g) => b <= g ? 1 : Math.ceil((b - PAGE_OVERLAP_M) / (g - PAGE_OVERLAP_M));
+      const cols = allowMulti ? need(bw, gw) : 1;
+      const rows = allowMulti ? need(bh, gh) : 1;
+      const count = cols * rows;
+      if (best && count > best.count) continue;
+      const stepX = (gw - PAGE_OVERLAP_M) / mpp, stepY = (gh - PAGE_OVERLAP_M) / mpp;
+      const pages = [];
+      for (let r = 0; r < rows && count <= MAX_PAGES; r++) {
+        for (let c = 0; c < cols; c++) {
+          const x = cx + (c - (cols - 1) / 2) * stepX;
+          const y = cy + (r - (rows - 1) / 2) * stepY + panelShift;
+          pages.push({ center: unproject(x, y, zRef), x, y });
+        }
+      }
+      // 各ページの使える範囲（情報帯を除く）に入らない地点・GPX
+      const hw = gw / 2 / mpp, top = (m.h * M_PER_MM / 2) / mpp;
+      const inside = q => pages.some(pg => Math.abs(q.x - pg.x) <= hw && q.y >= pg.y - top && q.y <= pg.y - top + gh / mpp);
+      const outside = state.points.filter((p, i) => !inside(px[i]));
+      const trackOutN = px.slice(state.points.length).filter(q => !inside(q)).length;
+      const miss = outside.length * 1e6 + trackOutN;
+      const slack = Math.min(gw / bw, gh / bh);
+      const cand = { orient, cols, rows, count, slack, m, pages, outside, trackOut: trackOutN > 0, miss };
+      if (!best || count < best.count || (count === best.count && (miss < best.miss || (miss === best.miss && slack > best.slack)))) best = cand;
     }
   }
+  const fits = !best.miss;
   if (best.count > MAX_PAGES) return { orient: best.orient, mapMM: best.m, pages: [], tooMany: best.count, fits: false, cols: 0, rows: 0 };
-  return { orient: best.orient, mapMM: best.m, pages, fits: best.fits, cols: best.cols, rows: best.rows };
+  return { orient: best.orient, mapMM: best.m, pages: best.pages, fits, outside: best.outside, trackOut: best.trackOut, cols: best.cols, rows: best.rows };
 }
 
 // 計画の地点が乗っているGPXの範囲（印刷範囲に含める）
@@ -1181,7 +1185,8 @@ function usedTrackPoints() {
 
 // 例：20261003_剱岳_室堂
 function autoFileName() {
-  const stamp = (els.tripDate.value || new Date().toISOString().slice(0, 10)).replace(/-/g, '');
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   const peak = state.points.find(p => p.role === 'peak') || state.points.find((p, i) => i > 0 && /山|岳|峰|嶺/.test(p.name));
   const start = state.points[0];
   return safeFileName([stamp, peak?.name, start && start !== peak ? start.name : ''].filter(Boolean).join('_')) || `Topo25000_${stamp}`;
@@ -1199,11 +1204,34 @@ function updateLayoutInfo() {
   els.pdfBtn.disabled = !!lay.tooMany;
   if (lay.tooMany) {
     els.layoutInfo.textContent = `⚠ 範囲が広すぎます（A4で${lay.tooMany}枚）。地点の場所を確認してください。`;
-  } else if (lay.pages.length === 1) {
-    els.layoutInfo.textContent = lay.fits ? `→ ${o} 1枚に収まります` : `→ ${o} 1枚（はみ出す地点があります）`;
-  } else {
-    els.layoutInfo.textContent = `→ ${o} ${lay.pages.length}枚（${lay.cols}列×${lay.rows}段、1 km重ね）`;
+    return;
   }
+  const lines = [];
+  if (lay.pages.length === 1) lines.push(lay.fits ? `→ ${o} 1枚に収まります` : `→ ${o} 1枚`);
+  else lines.push(`→ ${o} ${lay.pages.length}枚（${lay.cols}列×${lay.rows}段、1 km重ね）`);
+  if (!lay.fits) {
+    const names = lay.outside.map(p => p.name || '地点');
+    lines.push(`⚠ 枠の外：${[...names, ...(lay.trackOut ? ['GPXの道の一部'] : [])].join('、')}`);
+  }
+  els.layoutInfo.replaceChildren(...lines.map(t => Object.assign(document.createElement('div'), { textContent: t })));
+  const btn = (label, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.addEventListener('click', fn); els.layoutInfo.append(b); };
+  if (lay.pages.length > 1) btn('1枚にする', () => { els.multiPage.checked = false; setFrameMode(true); layoutChanged(); });
+  else if (!els.multiPage.checked || state.frameShift.x || state.frameShift.y) {
+    if (!lay.fits) btn(lay.orient === 'portrait' ? 'A4横にする' : 'A4縦にする', () => { els.orientSelect.value = lay.orient === 'portrait' ? 'landscape' : 'portrait'; layoutChanged(); });
+    btn(state.frameMode ? '枠の移動を終える' : '枠を指で動かす', () => setFrameMode(!state.frameMode));
+  }
+  if (state.frameShift.x || state.frameShift.y) btn('枠を中央に戻す', () => { state.frameShift = { x: 0, y: 0 }; layoutChanged(); });
+  if (!els.multiPage.checked) btn('複数ページに戻す', () => { els.multiPage.checked = true; state.frameShift = { x: 0, y: 0 }; setFrameMode(false); layoutChanged(); });
+}
+
+function layoutChanged() { updateLayoutInfo(); saveState(); fitPoints(); }
+
+function setFrameMode(on) {
+  state.frameMode = on;
+  els.frameBtn.classList.toggle('on', on);
+  if (on) els.canvas.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  els.hint.textContent = on ? '赤い枠を指でドラッグして動かせます（✥でおわり）' : '途中の地点は地図をタップ';
+  updateLayoutInfo();
 }
 
 /* ---------- プレビュー地図 ---------- */
@@ -1308,6 +1336,8 @@ async function renderPreview() {
       const mpp = mercatorMpp(pg.center.lat, z);
       const hw = lay.mapMM.w * M_PER_MM / 2 / mpp, hh = lay.mapMM.h * M_PER_MM / 2 / mpp;
       ctx.strokeRect(c.x - hw, c.y - hh, hw * 2, hh * 2);
+      const ph = PANEL_MM * M_PER_MM / mpp; // 情報帯（ここは地図が隠れる）
+      ctx.fillStyle = 'rgba(160,20,20,.12)'; ctx.fillRect(c.x - hw, c.y + hh - ph, hw * 2, ph);
       if (lay.pages.length > 1) {
         ctx.fillStyle = 'rgba(160,20,20,.9)'; ctx.font = '700 12px -apple-system,sans-serif';
         ctx.fillText(`P${i + 1}`, c.x - hw + 4, c.y - hh + 14);
@@ -1332,7 +1362,7 @@ async function renderPreview() {
   sched.forEach((s, i) => {
     const q = scr[i];
     if (stack[i] === 0) drawPointMarker(ctx, q.x, q.y, 10, String(i + 1), i === 0);
-    if (z >= 13) drawPointLabel(ctx, q.x, q.y + stack[i] * 15, 10, `${stack[i] ? `${i + 1} ` : ''}${s.p.name} ${fmtHM(s.arr)}`, 12);
+    if (z >= 13) drawPointLabel(ctx, q.x, q.y + stack[i] * 15, 10, `${stack[i] ? `${i + 1} ` : ''}${s.p.name}${i ? ` ${fmtCT(s.move)}` : ''}`, 12);
   });
 }
 
@@ -1474,12 +1504,11 @@ function drawPlanTable(ctx, geo, sched, dpi, panelH, avoid) {
   ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1, mm(.15)); ctx.strokeRect(box.x, box.y, tw, th);
   ctx.fillStyle = '#111'; ctx.textBaseline = 'middle';
   let y = box.y + pad + rowH / 2;
-  const dateStr = els.tripDate.value ? els.tripDate.value.replace(/-/g, '/') : '';
   ctx.font = `700 ${font}px -apple-system,"Hiragino Sans",sans-serif`;
-  ctx.fillText(`行動計画 ${dateStr}`, box.x + pad, y);
+  ctx.fillText('標準コースタイム（休憩なし）', box.x + pad, y);
   y += rowH;
   const xNo = box.x + pad, xName = xNo + colNo, xArr = xName + nameW + mm(1.5), xDep = xArr + colT, xEle = xDep + colT;
-  ctx.fillText('No', xNo, y); ctx.fillText('地点', xName, y); ctx.fillText('着', xArr, y); ctx.fillText('発', xDep, y); ctx.fillText('標高', xEle, y);
+  ctx.fillText('No', xNo, y); ctx.fillText('地点', xName, y); ctx.fillText('区間', xArr, y); ctx.fillText('累計', xDep, y); ctx.fillText('標高', xEle, y);
   ctx.font = `${font}px -apple-system,"Hiragino Sans",sans-serif`;
   rows.forEach((s, i) => {
     y += rowH;
@@ -1487,8 +1516,8 @@ function drawPlanTable(ctx, geo, sched, dpi, panelH, avoid) {
     let name = s.p.name;
     while (name.length > 1 && ctx.measureText(name).width > nameW) name = name.slice(0, -1);
     ctx.fillText(name, xName, y);
-    ctx.fillText(i === 0 ? '' : fmtHM(s.arr), xArr, y);
-    ctx.fillText(fmtHM(s.dep), xDep, y);
+    ctx.fillText(i === 0 ? '' : fmtCT(s.move), xArr, y);
+    ctx.fillText(fmtCT(s.arr), xDep, y);
     ctx.fillText(s.p.ele != null ? String(s.p.ele) : '', xEle, y);
   });
   if (extra) { y += rowH; ctx.fillText(`…ほか${sched.length - rows.length}地点`, xName, y); }
@@ -1517,7 +1546,7 @@ function drawPdfOverlay(ctx, geo, center, pageNo, pageCount, declination, sched,
     const q = pts[i];
     if (q.x < -r || q.x > w + r || q.y < -r || q.y > h + r) return;
     if (stack[i] === 0) drawPointMarker(ctx, q.x, q.y, r, String(i + 1), i === 0);
-    drawPointLabel(ctx, q.x, q.y + stack[i] * mm(3.1), r, `${stack[i] ? `${i + 1} ` : ''}${s.p.name} ${fmtHM(s.arr)}`, mm(2.4));
+    drawPointLabel(ctx, q.x, q.y + stack[i] * mm(3.1), r, `${stack[i] ? `${i + 1} ` : ''}${s.p.name}${i ? ` ${fmtCT(s.move)}` : ''}`, mm(2.4));
   });
 
   // border
@@ -1551,7 +1580,7 @@ function drawPdfOverlay(ctx, geo, center, pageNo, pageCount, declination, sched,
   const narrow = w < h;
   ctx.font = `700 ${f1}px -apple-system,sans-serif`;
   ctx.textBaseline = 'top';
-  const dateStr = els.tripDate.value ? `山行日 ${els.tripDate.value.replace(/-/g, '/')}  |  ` : '';
+  const dateStr = '';
   ctx.fillText(`${dateStr}1:25,000  |  磁北線 1 km = 40 mm  |  偏角 ${formatDeclination(declination)}  |  ${pageNo}/${pageCount}`, pad, h-panelH+pad);
   ctx.font = `${f2}px -apple-system,sans-serif`;
   ctx.fillText(`中心 ${center.lat.toFixed(5)}, ${center.lon.toFixed(5)}  |  出典：国土地理院「地理院タイル（標準地図）」`, pad, h-panelH+pad+f1*1.35);
@@ -1752,7 +1781,8 @@ els.applyCoordBtn.addEventListener('click', () => {
 });
 els.coordInput.addEventListener('keydown', e => { if (e.key === 'Enter') els.applyCoordBtn.click(); });
 for (const e of [els.startTime, els.paceSelect, els.tripDate]) e.addEventListener('change', () => planChanged(true));
-for (const e of [els.orientSelect, els.multiPage]) e.addEventListener('change', () => { updateLayoutInfo(); saveState(); fitPoints(); });
+for (const e of [els.orientSelect, els.multiPage]) e.addEventListener('change', layoutChanged);
+els.frameBtn.addEventListener('click', () => setFrameMode(!state.frameMode));
 for (const e of [els.dpiSelect, els.tableCheck, els.gpxPdfCheck]) e.addEventListener('change', saveState);
 els.zoomInBtn.addEventListener('click', () => { state.zoom = clamp(state.zoom+1, 5, 18); renderPreview(); saveState(); });
 els.zoomOutBtn.addEventListener('click', () => { state.zoom = clamp(state.zoom-1, 5, 18); renderPreview(); saveState(); });
@@ -1770,13 +1800,20 @@ els.fitBtn.addEventListener('click', () => { fitPoints(); saveState(); });
 
 els.canvas.addEventListener('pointerdown', e => {
   els.canvas.setPointerCapture?.(e.pointerId);
-  state.drag = { x: e.clientX, y: e.clientY, center: { ...state.center }, moved: false };
+  state.drag = { x: e.clientX, y: e.clientY, center: { ...state.center }, shift: { ...state.frameShift }, moved: false };
 });
 els.canvas.addEventListener('pointermove', e => {
   if (!state.drag) return;
   const dx = e.clientX - state.drag.x, dy = e.clientY - state.drag.y;
   if (Math.hypot(dx,dy) > 6) state.drag.moved = true;
   if (!state.drag.moved) return;
+  if (state.frameMode) {
+    // 枠を動かす（画面の1pxは今の縮尺の地上距離）
+    const mpp = mercatorMpp(state.center.lat, state.zoom);
+    state.frameShift = { x: state.drag.shift.x + dx * mpp, y: state.drag.shift.y + dy * mpp };
+    renderPreview();
+    return;
+  }
   const cp = project(state.drag.center.lat, state.drag.center.lon, state.zoom);
   state.center = unproject(cp.x - dx, cp.y - dy, state.zoom);
   renderPreview();
@@ -1785,8 +1822,8 @@ els.canvas.addEventListener('pointerup', e => {
   if (!state.drag) return;
   const moved = state.drag.moved;
   state.drag = null;
-  if (moved) saveState();
-  else addPoint(canvasPointToLatLon(e.clientX, e.clientY));
+  if (moved) { saveState(); if (state.frameMode) updateLayoutInfo(); }
+  else if (!state.frameMode) addPoint(canvasPointToLatLon(e.clientX, e.clientY));
 });
 els.canvas.addEventListener('pointercancel', () => state.drag = null);
 els.canvas.addEventListener('wheel', e => {
